@@ -1,13 +1,9 @@
-// This code was adapted from https://github.com/dapr/components-contrib/blob/v1.14.6/
-// Copyright (C) 2023 The Dapr Authors
-// License: Apache2
-
-package sqladapter
+package adapter
 
 import (
 	"context"
 
-	"github.com/italypaleale/go-sql-utils/sqladapter/internal"
+	"github.com/italypaleale/go-sql-utils/adapter/internal"
 )
 
 // DatabaseConn is the interface matched by all adapters.

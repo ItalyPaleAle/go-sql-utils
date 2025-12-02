@@ -15,8 +15,8 @@ import (
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5/pgconn"
 
+	postgresadapter "github.com/italypaleale/go-sql-utils/adapter/postgres"
 	"github.com/italypaleale/go-sql-utils/migrations"
-	postgresadapter "github.com/italypaleale/go-sql-utils/sqladapter/postgres"
 )
 
 // Migrations performs migrations for the database schema

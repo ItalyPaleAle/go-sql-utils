@@ -11,14 +11,14 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
-	"github.com/italypaleale/go-sql-utils/sqladapter"
-	"github.com/italypaleale/go-sql-utils/sqladapter/internal"
+	"github.com/italypaleale/go-sql-utils/adapter"
+	"github.com/italypaleale/go-sql-utils/adapter/internal"
 )
 
 // AdaptPgxConn returns a databaseConn based on a pgx connection.
 //
 // Note: when using transactions with pgx, the context passed to Begin impacts the creation of the transaction only.
-func AdaptPgxConn(db PgxConn) sqladapter.DatabaseConn {
+func AdaptPgxConn(db PgxConn) adapter.DatabaseConn {
 	return &PgxAdapter{db}
 }
 

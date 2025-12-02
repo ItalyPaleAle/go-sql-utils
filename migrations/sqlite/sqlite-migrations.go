@@ -12,8 +12,8 @@ import (
 	"os"
 	"time"
 
+	sqladapter "github.com/italypaleale/go-sql-utils/adapter/sql"
 	"github.com/italypaleale/go-sql-utils/migrations"
-	databasesqladapter "github.com/italypaleale/go-sql-utils/sqladapter/databasesql"
 )
 
 // Migrations performs migrations for the database schema
@@ -32,7 +32,7 @@ func (m *Migrations) Perform(ctx context.Context, migrationFns []migrations.Migr
 	if err != nil {
 		return fmt.Errorf("failed to get a connection from the pool: %w", err)
 	}
-	defer m.conn.Close()
+	defer m.conn.Close() //nolint:errcheck
 
 	// Begin an exclusive transaction
 	// We can't use Begin because that doesn't allow us setting the level of transaction
@@ -60,7 +60,7 @@ func (m *Migrations) Perform(ctx context.Context, migrationFns []migrations.Migr
 	}()
 
 	// Perform the migrations
-	err = migrations.Migrate(ctx, databasesqladapter.AdaptDatabaseSQLConn(m.conn), migrations.MigrationOptions{
+	err = migrations.Migrate(ctx, sqladapter.AdaptDatabaseSQLConn(m.conn), migrations.MigrationOptions{
 		// Yes, we are using fmt.Sprintf for adding a value in a query.
 		// This comes from a constant hardcoded at development-time, and cannot be influenced by users. So, no risk of SQL injections here.
 		GetVersionQuery: fmt.Sprintf(`SELECT value FROM %s WHERE key = '%s'`, m.MetadataTableName, m.MetadataKey),
@@ -116,7 +116,7 @@ func (m *Migrations) GetConn() *sql.Conn {
 }
 
 // Returns true if a table exists
-func (m *Migrations) tableExists(parentCtx context.Context, db databasesqladapter.DatabaseSQLConn) (bool, error) {
+func (m *Migrations) tableExists(parentCtx context.Context, db sqladapter.DatabaseSQLConn) (bool, error) {
 	ctx, cancel := context.WithTimeout(parentCtx, 30*time.Second)
 	defer cancel()
 
@@ -130,7 +130,7 @@ func (m *Migrations) tableExists(parentCtx context.Context, db databasesqladapte
 	return exists == "1", err
 }
 
-func (m *Migrations) createMetadataTable(ctx context.Context, db databasesqladapter.DatabaseSQLConn, logger *slog.Logger) error {
+func (m *Migrations) createMetadataTable(ctx context.Context, db sqladapter.DatabaseSQLConn, logger *slog.Logger) error {
 	logger.InfoContext(ctx, "Creating metadata table", slog.String("table", m.MetadataTableName))
 
 	// Add an "IF NOT EXISTS" in case another process is creating the same table at the same time

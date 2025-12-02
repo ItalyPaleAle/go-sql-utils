@@ -14,7 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/italypaleale/go-sql-utils/sqladapter"
+	"github.com/italypaleale/go-sql-utils/adapter"
 
 	"k8s.io/utils/clock"
 )
@@ -47,7 +47,7 @@ type GCOptions struct {
 
 	// Database connection.
 	// Must be adapted using AdaptDatabaseSQLConn or AdaptPgxConn.
-	DB sqladapter.DatabaseConn
+	DB adapter.DatabaseConn
 
 	// Optional clock
 	Clock clock.WithTicker
@@ -59,7 +59,7 @@ type gc struct {
 	deleteExpiredValuesQueries map[string]DeleteExpiredValuesQueryFn
 	cleanupInterval            time.Duration
 	cleanupQueryTimeout        time.Duration
-	db                         sqladapter.DatabaseConn
+	db                         adapter.DatabaseConn
 	clock                      clock.WithTicker
 
 	closed   atomic.Bool

@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/italypaleale/go-sql-utils/sqladapter"
+	"github.com/italypaleale/go-sql-utils/adapter"
 )
 
 // MigrationOptions contains options for the Migrate function.
@@ -36,7 +36,7 @@ type (
 )
 
 // Migrate performs database migrations.
-func Migrate(ctx context.Context, db sqladapter.DatabaseConn, opts MigrationOptions, logger *slog.Logger) (err error) {
+func Migrate(ctx context.Context, db adapter.DatabaseConn, opts MigrationOptions, logger *slog.Logger) (err error) {
 	logger = logger.With(slog.String("component", "migrations"))
 	logger.DebugContext(ctx, "Begin migrations")
 

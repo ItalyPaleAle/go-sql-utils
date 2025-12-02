@@ -1,19 +1,23 @@
-package databasesqladapter
+// This code was adapted from https://github.com/dapr/components-contrib/blob/v1.14.6/
+// Copyright (C) 2023 The Dapr Authors
+// License: Apache2
+
+package sqladapter
 
 import (
 	"context"
 	"database/sql"
 	"errors"
 
-	"github.com/italypaleale/go-sql-utils/sqladapter"
-	"github.com/italypaleale/go-sql-utils/sqladapter/internal"
+	"github.com/italypaleale/go-sql-utils/adapter"
+	"github.com/italypaleale/go-sql-utils/adapter/internal"
 )
 
 // AdaptDatabaseSQLConn returns a databaseConn based on a database/sql connection.
 //
 // Note: when using transactions with database/sql, the context passed to Begin impacts the entire transaction.
 // Canceling the context automatically rolls back the transaction.
-func AdaptDatabaseSQLConn(db DatabaseSQLConn) sqladapter.DatabaseConn {
+func AdaptDatabaseSQLConn(db DatabaseSQLConn) adapter.DatabaseConn {
 	return &DatabaseSQLAdapter{db}
 }
 
