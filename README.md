@@ -10,6 +10,7 @@ go get github.com/italypaleale/go-sql-utils
 
 - **[migrations](#migrations)**: Database schema versioning for Postgres and SQLite, with concurrency support
 - **[cleanup](#cleanup)**: Scheduled garbage collection for expired database records, optimized for concurrency in distributed systems
+- **[sqlite](#sqlite)**: Helpers to open and configure SQLite connections safely using the `modernc.org/sqlite` driver
 - **[transactions](#transactions)**: Transaction helpers with automatic rollback
 - **sqladapter** (utility): Unified database interface for `database/sql` and `pgx` drivers
 
@@ -78,7 +79,7 @@ m := &sqlitemigrations.Migrations{
 err := m.Perform(ctx, migrationFns, logger)
 ```
 
-### How It Works
+### Migration Workflow
 
 1. Creates a metadata table (if not exists) to track the current migration level
 2. Queries the current migration level from the database
@@ -137,7 +138,7 @@ if err != nil {
 defer gc.Close()
 ```
 
-### How It Works
+### Cleanup Workflow
 
 1. When `CleanupInterval > 0`, a background goroutine runs on a ticker
 2. On each tick, it attempts to update the last cleanup time atomically
@@ -151,6 +152,41 @@ You can trigger cleanup manually for testing:
 ```go
 err := gc.CleanupExpired()
 ```
+
+---
+
+## sqlite
+
+The sqlite package provides a small wrapper around the [modernc.org/sqlite](https://pkg.go.dev/modernc.org/sqlite) driver to open SQLite databases with sensible defaults..
+
+### Connecting
+
+```go
+import (
+    "log/slog"
+
+    sqliteutils "github.com/italypaleale/go-sql-utils/sqlite"
+)
+
+db, err := sqliteutils.Connect(sqliteutils.ConnectOpts{
+    ConnString: "data.db",
+})
+if err != nil {
+    return err
+}
+defer db.Close()
+```
+
+The connection string can be a filesystem path such as `./data.db`, a `file:` URL, or an in-memory database such as `:memory:`.
+
+### Default Behavior
+
+- Normalizes the connection string for the `modernc.org/sqlite` driver
+- Ensures the parent directory for file-backed databases exists
+- Adds recommended SQLite parameters such as `_txlock=immediate`, a 2.5s busy timeout, `foreign_keys(1)`, and an appropriate journal mode
+- Limits in-memory databases to one open connection so all operations share the same database state
+- Tries to ensure SQLite has a writable temp directory, which is useful in containers with read-only root filesystems
+- Logs a warning when the database appears to be stored on a networked filesystem
 
 ---
 
