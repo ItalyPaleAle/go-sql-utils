@@ -62,6 +62,14 @@ func (pga *PgxAdapter) Begin(ctx context.Context) (internal.DatabaseConnTx, erro
 	return &pgxTxAdapter{tx}, nil
 }
 
+func (pga *PgxAdapter) Query(ctx context.Context, query string, args ...any) (internal.DatabaseConnRows, error) {
+	rows, err := pga.conn.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	return &pgxRows{rows}, nil
+}
+
 func (pga *PgxAdapter) Exec(ctx context.Context, query string, args ...any) (int64, error) {
 	res, err := pga.conn.Exec(ctx, query, args...)
 	if err != nil {
@@ -90,6 +98,14 @@ func (pgtx *pgxTxAdapter) Commit(ctx context.Context) error {
 	return pgtx.tx.Commit(ctx)
 }
 
+func (pgtx *pgxTxAdapter) Query(ctx context.Context, query string, args ...any) (internal.DatabaseConnRows, error) {
+	rows, err := pgtx.tx.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	return &pgxRows{rows}, nil
+}
+
 func (pgtx *pgxTxAdapter) Exec(ctx context.Context, query string, args ...any) (int64, error) {
 	res, err := pgtx.tx.Exec(ctx, query, args...)
 	if err != nil {
@@ -100,4 +116,25 @@ func (pgtx *pgxTxAdapter) Exec(ctx context.Context, query string, args ...any) (
 
 func (pgtx *pgxTxAdapter) QueryRow(ctx context.Context, query string, args ...any) internal.DatabaseConnRow {
 	return pgtx.tx.QueryRow(ctx, query, args...)
+}
+
+type pgxRows struct {
+	rows pgx.Rows
+}
+
+func (r *pgxRows) Close() error {
+	r.rows.Close()
+	return nil
+}
+
+func (r *pgxRows) Err() error {
+	return r.rows.Err()
+}
+
+func (r *pgxRows) Next() bool {
+	return r.rows.Next()
+}
+
+func (r *pgxRows) Scan(dest ...any) error {
+	return r.rows.Scan(dest...)
 }

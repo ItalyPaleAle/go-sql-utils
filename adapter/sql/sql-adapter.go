@@ -43,6 +43,10 @@ func (sqla *DatabaseSQLAdapter) Begin(ctx context.Context) (internal.DatabaseCon
 	return &databaseSQLTxAdapter{tx}, nil
 }
 
+func (sqla *DatabaseSQLAdapter) Query(ctx context.Context, query string, args ...any) (internal.DatabaseConnRows, error) {
+	return sqla.conn.QueryContext(ctx, query, args...)
+}
+
 func (sqla *DatabaseSQLAdapter) Exec(ctx context.Context, query string, args ...any) (int64, error) {
 	res, err := sqla.conn.ExecContext(ctx, query, args...)
 	if err != nil {
@@ -77,6 +81,10 @@ func (sqltx *databaseSQLTxAdapter) Exec(ctx context.Context, query string, args 
 		return 0, err
 	}
 	return res.RowsAffected()
+}
+
+func (sqltx *databaseSQLTxAdapter) Query(ctx context.Context, query string, args ...any) (internal.DatabaseConnRows, error) {
+	return sqltx.tx.QueryContext(ctx, query, args...)
 }
 
 func (sqltx *databaseSQLTxAdapter) QueryRow(ctx context.Context, query string, args ...any) internal.DatabaseConnRow {
