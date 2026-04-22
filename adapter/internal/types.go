@@ -16,8 +16,13 @@ type DatabaseConnRows interface {
 }
 
 type DatabaseConnTx interface {
+	Querier
+
 	Commit(ctx context.Context) error
 	Rollback(ctx context.Context) error
+}
+
+type Querier interface {
 	Query(ctx context.Context, query string, args ...any) (DatabaseConnRows, error)
 	QueryRow(ctx context.Context, query string, args ...any) DatabaseConnRow
 	Exec(ctx context.Context, query string, args ...any) (int64, error)

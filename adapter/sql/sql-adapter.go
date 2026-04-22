@@ -63,6 +63,10 @@ func (sqla *DatabaseSQLAdapter) IsNoRowsError(err error) bool {
 	return errors.Is(err, sql.ErrNoRows)
 }
 
+func (sqla *DatabaseSQLAdapter) IsTxDoneError(err error) bool {
+	return errors.Is(err, sql.ErrTxDone)
+}
+
 type databaseSQLTxAdapter struct {
 	tx *sql.Tx
 }

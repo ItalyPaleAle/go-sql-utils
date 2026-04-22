@@ -86,6 +86,10 @@ func (pga *PgxAdapter) IsNoRowsError(err error) bool {
 	return errors.Is(err, pgx.ErrNoRows)
 }
 
+func (pga *PgxAdapter) IsTxDoneError(err error) bool {
+	return errors.Is(err, pgx.ErrTxClosed)
+}
+
 type pgxTxAdapter struct {
 	tx pgx.Tx
 }
