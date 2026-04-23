@@ -83,11 +83,15 @@ func (pga *PgxAdapter) QueryRow(ctx context.Context, query string, args ...any) 
 }
 
 func (pga *PgxAdapter) IsNoRowsError(err error) bool {
-	return errors.Is(err, pgx.ErrNoRows)
+	return isNoRowsError(err)
 }
 
 func (pga *PgxAdapter) IsTxDoneError(err error) bool {
-	return errors.Is(err, pgx.ErrTxClosed)
+	return isTxDoneError(err)
+}
+
+func (pga *PgxAdapter) IsTransaction() bool {
+	return false
 }
 
 type pgxTxAdapter struct {
@@ -122,6 +126,18 @@ func (pgtx *pgxTxAdapter) QueryRow(ctx context.Context, query string, args ...an
 	return pgtx.tx.QueryRow(ctx, query, args...)
 }
 
+func (pgtx *pgxTxAdapter) IsNoRowsError(err error) bool {
+	return isNoRowsError(err)
+}
+
+func (pgtx *pgxTxAdapter) IsTxDoneError(err error) bool {
+	return isTxDoneError(err)
+}
+
+func (pgtx *pgxTxAdapter) IsTransaction() bool {
+	return true
+}
+
 type pgxRows struct {
 	rows pgx.Rows
 }
@@ -141,4 +157,12 @@ func (r *pgxRows) Next() bool {
 
 func (r *pgxRows) Scan(dest ...any) error {
 	return r.rows.Scan(dest...)
+}
+
+func isNoRowsError(err error) bool {
+	return errors.Is(err, pgx.ErrNoRows)
+}
+
+func isTxDoneError(err error) bool {
+	return errors.Is(err, pgx.ErrTxClosed)
 }

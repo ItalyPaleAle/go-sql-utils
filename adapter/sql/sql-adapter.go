@@ -60,11 +60,15 @@ func (sqla *DatabaseSQLAdapter) QueryRow(ctx context.Context, query string, args
 }
 
 func (sqla *DatabaseSQLAdapter) IsNoRowsError(err error) bool {
-	return errors.Is(err, sql.ErrNoRows)
+	return isNoRowsError(err)
 }
 
 func (sqla *DatabaseSQLAdapter) IsTxDoneError(err error) bool {
-	return errors.Is(err, sql.ErrTxDone)
+	return isTxDoneError(err)
+}
+
+func (sqla *DatabaseSQLAdapter) IsTransaction() bool {
+	return false
 }
 
 type databaseSQLTxAdapter struct {
@@ -93,4 +97,24 @@ func (sqltx *databaseSQLTxAdapter) Query(ctx context.Context, query string, args
 
 func (sqltx *databaseSQLTxAdapter) QueryRow(ctx context.Context, query string, args ...any) internal.DatabaseConnRow {
 	return sqltx.tx.QueryRowContext(ctx, query, args...)
+}
+
+func (sqltx *databaseSQLTxAdapter) IsNoRowsError(err error) bool {
+	return isNoRowsError(err)
+}
+
+func (sqltx *databaseSQLTxAdapter) IsTxDoneError(err error) bool {
+	return isTxDoneError(err)
+}
+
+func (sqltx *databaseSQLTxAdapter) IsTransaction() bool {
+	return true
+}
+
+func isNoRowsError(err error) bool {
+	return errors.Is(err, sql.ErrNoRows)
+}
+
+func isTxDoneError(err error) bool {
+	return errors.Is(err, sql.ErrTxDone)
 }

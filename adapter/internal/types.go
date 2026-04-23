@@ -22,7 +22,15 @@ type DatabaseConnTx interface {
 	Rollback(ctx context.Context) error
 }
 
+type DbHelpers interface {
+	IsTransaction() bool
+	IsNoRowsError(err error) bool
+	IsTxDoneError(err error) bool
+}
+
 type Querier interface {
+	DbHelpers
+
 	Query(ctx context.Context, query string, args ...any) (DatabaseConnRows, error)
 	QueryRow(ctx context.Context, query string, args ...any) DatabaseConnRow
 	Exec(ctx context.Context, query string, args ...any) (int64, error)

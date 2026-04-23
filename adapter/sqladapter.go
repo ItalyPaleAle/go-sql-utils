@@ -14,6 +14,4 @@ type DatabaseConn interface {
 	internal.Querier
 
 	Begin(ctx context.Context) (internal.DatabaseConnTx, error)
-	IsNoRowsError(err error) bool
-	IsTxDoneError(err error) bool
 }
