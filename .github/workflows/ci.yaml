@@ -41,6 +41,6 @@ jobs:
 
       - name: Run tests
         run: |
-          go test -v ./...
+          go test -race -v ./...
         env:
           POSTGRES_TEST_DB: "postgres://postgres:postgres@localhost:5432/testdb"
