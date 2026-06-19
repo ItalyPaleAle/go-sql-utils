@@ -29,7 +29,17 @@ func getTestDB(t *testing.T) *pgxpool.Pool {
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 
-	pool, err := pgxpool.New(ctx, connStr)
+	cfg, err := pgxpool.ParseConfig(connStr)
+	require.NoError(t, err)
+
+	// Some tests (e.g. TestMigrations_Perform_ConcurrentSafety) run several migrations concurrently on a single pool
+	// Each concurrent migration holds one connection for the lock-holding transaction while also using a second connection to read/write the migration level, so the pool must be large enough to satisfy all of them at once
+	// pgxpool's default MaxConns is max(4, NumCPU), which can be too small on CI runners and lead to a connection-starvation deadlock, so we ensure the pool has a comfortable number of connections here
+	if cfg.MaxConns < 20 {
+		cfg.MaxConns = 20
+	}
+
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	require.NoError(t, err)
 
 	// Verify connection

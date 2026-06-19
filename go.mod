@@ -1,6 +1,6 @@
 module github.com/italypaleale/go-sql-utils
 
-go 1.25.4
+go 1.26.3
 
 require (
 	github.com/jackc/pgerrcode v0.0.0-20250907135507-afb5586c32a6
