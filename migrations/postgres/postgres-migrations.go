@@ -97,7 +97,7 @@ func (m Migrations) EnsureMetadataTable(ctx context.Context, logger *slog.Logger
 	logger.InfoContext(ctx, "Creating metadata table", slog.String("table", m.MetadataTableName))
 	// Add an "IF NOT EXISTS" in case another process is creating the same table at the same time
 	// In the next step we'll acquire a lock so there won't be issues with concurrency
-	// Note that this query can fail with error `23505` on constraint `pg_type_typname_nsp_index` if ran in parallel; we will just retry that up to 3 times
+	// Note that this query can still fail when ran in parallel, with either error `23505` (UniqueViolation, e.g. on constraint `pg_type_typname_nsp_index`) or `42710` (DuplicateObject, "type already exists"), so we will just retry those up to 3 times
 	for range 3 {
 		_, err = m.DB.Exec(ctx, fmt.Sprintf(
 			`CREATE TABLE IF NOT EXISTS %s (
@@ -110,9 +110,9 @@ func (m Migrations) EnsureMetadataTable(ctx context.Context, logger *slog.Logger
 			break
 		}
 
-		// If the error is not a UniqueViolation (23505), abort
-		var pgErr *pgconn.PgError
-		if !errors.As(err, &pgErr) || pgErr.Code != pgerrcode.UniqueViolation {
+		// If the error is not one that can occur from concurrent creation (23505 or 42710), abort
+		pgErr, ok := errors.AsType[*pgconn.PgError](err)
+		if !ok || (pgErr.Code != pgerrcode.UniqueViolation && pgErr.Code != pgerrcode.DuplicateObject) {
 			return fmt.Errorf("failed to create metadata table: %w", err)
 		}
 
