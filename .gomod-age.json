@@ -1,0 +1,8 @@
+{
+  "age": "7d",
+  "ignore": [
+    "golang.org/x/*"
+  ],
+  "allow": [
+  ]
+}
