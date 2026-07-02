@@ -119,7 +119,7 @@ func addDefaultParameters(connStringUrl *url.URL, isMemoryDB bool, log *slog.Log
 	}
 
 	// Add pragma values
-	var hasBusyTimeout, hasJournalMode bool
+	var hasBusyTimeout, hasJournalMode, hasTempStore bool
 	if len(qs["_pragma"]) == 0 {
 		qs["_pragma"] = make([]string, 0, 3)
 	} else {
@@ -130,6 +130,8 @@ func addDefaultParameters(connStringUrl *url.URL, isMemoryDB bool, log *slog.Log
 				hasBusyTimeout = true
 			case strings.HasPrefix(p, "journal_mode"):
 				hasJournalMode = true
+			case strings.HasPrefix(p, "temp_store"):
+				hasTempStore = true
 			case strings.HasPrefix(p, "foreign_keys"):
 				return errors.New("found forbidden option '_pragma=foreign_keys' in the connection string")
 			}
@@ -150,6 +152,10 @@ func addDefaultParameters(connStringUrl *url.URL, isMemoryDB bool, log *slog.Log
 			// Enable WAL
 			qs["_pragma"] = append(qs["_pragma"], "journal_mode(WAL)")
 		}
+	}
+	if !hasTempStore && !isMemoryDB && !isReadOnly {
+		// Set temp_store to "MEMORY" to tell SQLite to keep the temporary data in-memory
+		qs["_pragma"] = append(qs["_pragma"], "temp_store(MEMORY)")
 	}
 
 	// Forcefully enable foreign keys

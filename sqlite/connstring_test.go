@@ -100,7 +100,7 @@ func TestAddDefaultParameters(t *testing.T) {
 			name:       "basic file database",
 			input:      "file:test.db",
 			isMemoryDB: false,
-			expected:   "file:test.db?_pragma=busy_timeout%282500%29&_pragma=foreign_keys%281%29&_pragma=journal_mode%28WAL%29&_txlock=immediate",
+			expected:   "file:test.db?_pragma=busy_timeout%282500%29&_pragma=foreign_keys%281%29&_pragma=temp_store%28MEMORY%29&_pragma=journal_mode%28WAL%29&_txlock=immediate",
 		},
 		{
 			name:       "in-memory database",
@@ -124,19 +124,25 @@ func TestAddDefaultParameters(t *testing.T) {
 			name:       "database with existing _txlock",
 			input:      "file:test.db?_txlock=deferred",
 			isMemoryDB: false,
-			expected:   "file:test.db?_pragma=busy_timeout%282500%29&_pragma=foreign_keys%281%29&_pragma=journal_mode%28WAL%29&_txlock=deferred",
+			expected:   "file:test.db?_pragma=busy_timeout%282500%29&_pragma=foreign_keys%281%29&_pragma=temp_store%28MEMORY%29&_pragma=journal_mode%28WAL%29&_txlock=deferred",
 		},
 		{
 			name:       "database with existing busy_timeout pragma",
 			input:      "file:test.db?_pragma=busy_timeout%285000%29",
 			isMemoryDB: false,
-			expected:   "file:test.db?_pragma=busy_timeout%285000%29&_pragma=foreign_keys%281%29&_pragma=journal_mode%28WAL%29&_txlock=immediate",
+			expected:   "file:test.db?_pragma=busy_timeout%285000%29&_pragma=foreign_keys%281%29&_pragma=temp_store%28MEMORY%29&_pragma=journal_mode%28WAL%29&_txlock=immediate",
 		},
 		{
 			name:       "database with existing journal_mode pragma",
 			input:      "file:test.db?_pragma=journal_mode%28DELETE%29",
 			isMemoryDB: false,
-			expected:   "file:test.db?_pragma=busy_timeout%282500%29&_pragma=foreign_keys%281%29&_pragma=journal_mode%28DELETE%29&_txlock=immediate",
+			expected:   "file:test.db?_pragma=busy_timeout%282500%29&_pragma=foreign_keys%281%29&_pragma=temp_store%28MEMORY%29&_pragma=journal_mode%28DELETE%29&_txlock=immediate",
+		},
+		{
+			name:       "database with existing temp_store pragma",
+			input:      "file:test.db?_pragma=temp_store%28FILE%29",
+			isMemoryDB: false,
+			expected:   "file:test.db?_pragma=busy_timeout%282500%29&_pragma=foreign_keys%281%29&_pragma=temp_store%28FILE%29&_pragma=journal_mode%28WAL%29&_txlock=immediate",
 		},
 		{
 			name:        "database with forbidden foreign_keys pragma",
@@ -146,21 +152,21 @@ func TestAddDefaultParameters(t *testing.T) {
 		},
 		{
 			name:       "database with multiple existing pragmas",
-			input:      "file:test.db?_pragma=busy_timeout%283000%29&_pragma=journal_mode%28TRUNCATE%29&_pragma=synchronous%28NORMAL%29",
+			input:      "file:test.db?_pragma=busy_timeout%283000%29&_pragma=journal_mode%28TRUNCATE%29&_pragma=temp_store%28FILE%29&_pragma=synchronous%28NORMAL%29",
 			isMemoryDB: false,
-			expected:   "file:test.db?_pragma=busy_timeout%283000%29&_pragma=foreign_keys%281%29&_pragma=journal_mode%28TRUNCATE%29&_pragma=synchronous%28NORMAL%29&_txlock=immediate",
+			expected:   "file:test.db?_pragma=busy_timeout%283000%29&_pragma=foreign_keys%281%29&_pragma=temp_store%28FILE%29&_pragma=journal_mode%28TRUNCATE%29&_pragma=synchronous%28NORMAL%29&_txlock=immediate",
 		},
 		{
 			name:       "database with mode=rw (not read-only)",
 			input:      "file:test.db?mode=rw",
 			isMemoryDB: false,
-			expected:   "file:test.db?_pragma=busy_timeout%282500%29&_pragma=foreign_keys%281%29&_pragma=journal_mode%28WAL%29&_txlock=immediate&mode=rw",
+			expected:   "file:test.db?_pragma=busy_timeout%282500%29&_pragma=foreign_keys%281%29&_pragma=temp_store%28MEMORY%29&_pragma=journal_mode%28WAL%29&_txlock=immediate&mode=rw",
 		},
 		{
 			name:       "database with immutable=0 (not immutable)",
 			input:      "file:test.db?immutable=0",
 			isMemoryDB: false,
-			expected:   "file:test.db?_pragma=busy_timeout%282500%29&_pragma=foreign_keys%281%29&_pragma=journal_mode%28WAL%29&_txlock=immediate&immutable=0",
+			expected:   "file:test.db?_pragma=busy_timeout%282500%29&_pragma=foreign_keys%281%29&_pragma=temp_store%28MEMORY%29&_pragma=journal_mode%28WAL%29&_txlock=immediate&immutable=0",
 		},
 		{
 			name:       "database with mixed case mode=RO",
@@ -176,9 +182,9 @@ func TestAddDefaultParameters(t *testing.T) {
 		},
 		{
 			name:       "complex database configuration",
-			input:      "file:test.db?cache=shared&mode=rwc&_txlock=immediate&_pragma=synchronous%28FULL%29",
+			input:      "file:test.db?cache=shared&mode=rwc&_txlock=immediate&_pragma=synchronous%28FULL%29&_pragma=temp_store%28FILE%29",
 			isMemoryDB: false,
-			expected:   "file:test.db?_pragma=busy_timeout%282500%29&_pragma=foreign_keys%281%29&_pragma=journal_mode%28WAL%29&_pragma=synchronous%28FULL%29&_txlock=immediate&cache=shared&mode=rwc",
+			expected:   "file:test.db?_pragma=busy_timeout%282500%29&_pragma=foreign_keys%281%29&_pragma=temp_store%28FILE%29&_pragma=journal_mode%28WAL%29&_pragma=synchronous%28FULL%29&_txlock=immediate&cache=shared&mode=rwc",
 		},
 	}
 
