@@ -1,6 +1,6 @@
 //go:build linux
 
-// This code was adapted from https://github.com/pocket-id/pocket-id/tree/v2.5.0
+// This code was adapted from https://github.com/pocket-id/pocket-id/tree/v2.9.0
 // Copyright (c) 2024 Elias Schneider
 // License: BSD-2
 
@@ -19,8 +19,8 @@ const (
 	fuseSuperMagic = 0x65735546
 )
 
-// isNetworkedFileSystem reports whether path is on a filesystem that is known to be unsafe for SQLite, specifically NFS, SMB/CIFS, or FUSE mounts.
-func isNetworkedFileSystem(path string) (bool, error) {
+// IsNetworkedFileSystem reports whether path is on a filesystem that is known to be unsafe for SQLite, specifically NFS, SMB/CIFS, or FUSE mounts.
+func IsNetworkedFileSystem(path string) (bool, error) {
 	var statfs syscall.Statfs_t
 	err := syscall.Statfs(path, &statfs)
 	if err != nil {

@@ -1,4 +1,4 @@
-// This code was adapted from https://github.com/pocket-id/pocket-id/tree/v2.5.0
+// This code was adapted from https://github.com/pocket-id/pocket-id/tree/v2.9.0
 // Copyright (c) 2024 Elias Schneider
 // License: BSD-2
 
@@ -19,7 +19,7 @@ func TestEnsureSqliteDatabaseDir(t *testing.T) {
 		tempDir := t.TempDir()
 		dbPath := filepath.Join(tempDir, "nested", "pocket-id.db")
 
-		err := ensureDatabaseDir(dbPath)
+		err := EnsureDatabaseDir(dbPath)
 		require.NoError(t, err)
 
 		info, err := os.Stat(filepath.Dir(dbPath))
@@ -32,7 +32,7 @@ func TestEnsureSqliteDatabaseDir(t *testing.T) {
 		filePath := filepath.Join(tempDir, "file.txt")
 		require.NoError(t, os.WriteFile(filePath, []byte("test"), 0o600))
 
-		err := ensureDatabaseDir(filepath.Join(filePath, "data.db"))
+		err := EnsureDatabaseDir(filepath.Join(filePath, "data.db"))
 		require.Error(t, err)
 	})
 }

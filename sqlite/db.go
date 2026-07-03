@@ -39,20 +39,20 @@ func Connect(opts ConnectOpts) (*sql.DB, error) {
 
 	// Make sure that there's a temporary folder for SQLite to write its data
 	// Note that this may be necessary for in-memory databases too, as SQLite may use a temporary file for overflow storage
-	err = ensureTempDir(filepath.Dir(dbPath), opts.Logger)
+	err = EnsureTempDir(filepath.Dir(dbPath), opts.Logger)
 	if err != nil {
 		return nil, err
 	}
 
 	if !isMemoryDB {
 		// Ensure that the folder where the database is stored exists
-		err = ensureDatabaseDir(dbPath)
+		err = EnsureDatabaseDir(dbPath)
 		if err != nil {
 			return nil, err
 		}
 
 		// Running SQLite on a networked file system (like NFS, SMB, FUSE) is strongly discouraged because of bugs
-		sqliteNetworkFilesystem, err := isNetworkedFileSystem(filepath.Dir(dbPath))
+		sqliteNetworkFilesystem, err := IsNetworkedFileSystem(filepath.Dir(dbPath))
 		if err != nil {
 			// Log the error only
 			opts.Logger.Warn("Failed to detect filesystem type for the SQLite database directory", slog.String("path", filepath.Dir(dbPath)), slog.Any("error", err))

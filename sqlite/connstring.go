@@ -1,4 +1,4 @@
-// This code was adapted from https://github.com/pocket-id/pocket-id/tree/v2.5.0
+// This code was adapted from https://github.com/pocket-id/pocket-id/tree/v2.9.0
 // Copyright (c) 2024 Elias Schneider
 // License: BSD-2
 
@@ -33,6 +33,9 @@ func ParseConnectionString(connString string, log *slog.Logger) (parsedConnStrin
 	if err != nil {
 		return "", "", false, fmt.Errorf("failed to parse SQLite connection string: %w", err)
 	}
+
+	// Convert parameters the C library supports
+	convertSqlitePragmaArgs(connStringUrl)
 
 	// Add the default and required params
 	err = addDefaultParameters(connStringUrl, isMemoryDB, log)
@@ -165,4 +168,36 @@ func addDefaultParameters(connStringUrl *url.URL, isMemoryDB bool, log *slog.Log
 	connStringUrl.RawQuery = qs.Encode()
 
 	return nil
+}
+
+// convertSqlitePragmaArgs converts additional parameters in the connection string that are supported by the official C implementation (also used by github.com/mattn/go-sqlite3), but that need to be handled as PRAGMA args using the modernc.org/sqlite driver
+// Note: this function updates connStringUrl
+func convertSqlitePragmaArgs(connStringUrl *url.URL) {
+	// Reference: https://github.com/mattn/go-sqlite3?tab=readme-ov-file#connection-string
+	// This only includes a subset of options, excluding those that are not relevant to us
+	qs := make(url.Values, len(connStringUrl.Query()))
+	for k, v := range connStringUrl.Query() {
+		switch strings.ToLower(k) {
+		case "_auto_vacuum", "_vacuum":
+			qs.Add("_pragma", "auto_vacuum("+v[0]+")")
+		case "_busy_timeout", "_timeout":
+			qs.Add("_pragma", "busy_timeout("+v[0]+")")
+		case "_case_sensitive_like", "_cslike":
+			qs.Add("_pragma", "case_sensitive_like("+v[0]+")")
+		case "_foreign_keys", "_fk":
+			qs.Add("_pragma", "foreign_keys("+v[0]+")")
+		case "_locking_mode", "_locking":
+			qs.Add("_pragma", "locking_mode("+v[0]+")")
+		case "_secure_delete":
+			qs.Add("_pragma", "secure_delete("+v[0]+")")
+		case "_synchronous", "_sync":
+			qs.Add("_pragma", "synchronous("+v[0]+")")
+		default:
+			// Pass other query-string args as-is
+			qs[k] = v
+		}
+	}
+
+	// Update the connStringUrl object
+	connStringUrl.RawQuery = qs.Encode()
 }

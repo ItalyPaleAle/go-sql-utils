@@ -1,6 +1,6 @@
 package sqlite
 
-// This code was adapted from https://github.com/pocket-id/pocket-id/tree/v2.5.0
+// This code was adapted from https://github.com/pocket-id/pocket-id/tree/v2.9.0
 // Copyright (c) 2024 Elias Schneider
 // License: BSD-2
 
@@ -16,8 +16,8 @@ import (
 	"syscall"
 )
 
-// ensureDatabaseDir creates the parent directory for the SQLite database file if it doesn't exist yet
-func ensureDatabaseDir(dbPath string) error {
+// EnsureDatabaseDir creates the parent directory for the SQLite database file if it doesn't exist yet
+func EnsureDatabaseDir(dbPath string) error {
 	dir := filepath.Dir(dbPath)
 
 	info, err := os.Stat(dir)
@@ -38,10 +38,10 @@ func ensureDatabaseDir(dbPath string) error {
 	}
 }
 
-// ensureTempDir ensures that SQLite has a directory where it can write temporary files if needed
+// EnsureTempDir ensures that SQLite has a directory where it can write temporary files if needed
 // The default directory may not be writable when using a container with a read-only root file system
 // See: https://www.sqlite.org/tempfiles.html
-func ensureTempDir(dbPath string, log *slog.Logger) error {
+func EnsureTempDir(dbPath string, log *slog.Logger) error {
 	// Per docs, SQLite tries these folders in order (excluding those that aren't applicable to us):
 	//
 	// - The SQLITE_TMPDIR environment variable
