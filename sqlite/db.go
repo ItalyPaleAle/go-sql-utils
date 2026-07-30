@@ -1,45 +1,74 @@
 package sqlite
 
 import (
+	"context"
 	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"fmt"
 	"log/slog"
 	"path/filepath"
+	"sync"
 
 	_ "modernc.org/sqlite"
 )
 
-// ConnectOpts is the parameters struct for the Connect method
+// ConnectOpts configures Connect and NewConnector
 type ConnectOpts struct {
-	// SQLite database connection string
-	// Could be the path to a file, or a URL beginning with "file:"
+	// ConnString is a SQLite path or a URL beginning with "file:"
 	ConnString string
-	// Optional instance of a slog logger
+	// Logger is an optional slog instance used to log setup warnings
 	// If nil, uses the default slog instance
 	Logger *slog.Logger
 }
 
-// Connect to a SQLite database using the modernc.org/sqlite driver
-func Connect(opts ConnectOpts) (*sql.DB, error) {
+// Connector is a prepared modernc.org/sqlite connector
+// It contains the normalized DSN and the metadata needed to configure the resulting sql.DB
+// It can be passed to packages such as instrument/sqlite before opening the connection pool
+type Connector struct {
+	base       driver.Driver
+	connString string
+	inMemory   bool
+}
+
+// Get an instance of the default driver
+// See: https://gitlab.com/cznic/sqlite/-/work_items/253
+var defaultDriver = sync.OnceValues(func() (driver.Driver, error) {
+	db, err := sql.Open("sqlite", "")
+	if err != nil {
+		return nil, fmt.Errorf("failed to load the SQLite driver: %w", err)
+	}
+
+	base := db.Driver()
+	err = db.Close()
+	if err != nil {
+		return nil, fmt.Errorf("failed to release the SQLite driver handle: %w", err)
+	}
+
+	return base, nil
+})
+
+// NewConnector validates and normalizes SQLite configuration, performs the filesystem safety setup used by Connect, and returns a reusable connector
+func NewConnector(opts ConnectOpts) (*Connector, error) {
 	if opts.ConnString == "" {
 		return nil, errors.New("connection string is empty")
 	}
 
 	// Use the default slog instance if no specific logger is passed
-	if opts.Logger == nil {
-		opts.Logger = slog.Default()
+	log := opts.Logger
+	if log == nil {
+		log = slog.Default()
 	}
 
 	// Parse the connection string
-	connString, dbPath, isMemoryDB, err := ParseConnectionString(opts.ConnString, opts.Logger)
+	connString, dbPath, isMemoryDB, err := ParseConnectionString(opts.ConnString, log)
 	if err != nil {
 		return nil, err
 	}
 
 	// Make sure that there's a temporary folder for SQLite to write its data
 	// Note that this may be necessary for in-memory databases too, as SQLite may use a temporary file for overflow storage
-	err = EnsureTempDir(filepath.Dir(dbPath), opts.Logger)
+	err = EnsureTempDir(filepath.Dir(dbPath), log)
 	if err != nil {
 		return nil, err
 	}
@@ -51,27 +80,80 @@ func Connect(opts ConnectOpts) (*sql.DB, error) {
 			return nil, err
 		}
 
-		// Running SQLite on a networked file system (like NFS, SMB, FUSE) is strongly discouraged because of bugs
-		sqliteNetworkFilesystem, err := IsNetworkedFileSystem(filepath.Dir(dbPath))
-		if err != nil {
-			// Log the error only
-			opts.Logger.Warn("Failed to detect filesystem type for the SQLite database directory", slog.String("path", filepath.Dir(dbPath)), slog.Any("error", err))
-		} else if sqliteNetworkFilesystem {
-			opts.Logger.Warn("⚠️⚠️⚠️ SQLite databases should not be stored on a networked file system like NFS, SMB, or FUSE, as there's a risk of crashes and even database corruption", slog.String("path", filepath.Dir(dbPath)))
+		// SQLite locking is not reliable on filesystems such as NFS, SMB, and FUSE
+		networked, err := IsNetworkedFileSystem(filepath.Dir(dbPath))
+		switch {
+		case err != nil:
+			// Print out a warning log only
+			log.Warn("Failed to detect filesystem type for the SQLite database directory", slog.String("path", filepath.Dir(dbPath)), slog.Any("error", err))
+		case networked:
+			log.Warn("⚠️⚠️⚠️ SQLite databases should not be stored on a networked file system like NFS, SMB, or FUSE, as there's a risk of crashes and even database corruption", slog.String("path", filepath.Dir(dbPath)))
 		}
 	}
 
-	// Connect to the database
-	db, err := sql.Open("sqlite", connString)
+	// Get the driver and connector
+	base, err := defaultDriver()
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to SQLite database: %w", err)
+		return nil, err
 	}
 
-	// For in-memory SQLite databases, we must limit to 1 open connection at the same time, or they won't see the whole data
-	// The other workaround, of using shared caches, doesn't work well with multiple write transactions trying to happen at once
-	if isMemoryDB {
+	return &Connector{
+		base:       base,
+		connString: connString,
+		inMemory:   isMemoryDB,
+	}, nil
+}
+
+// Connect implements driver.Connector
+func (c *Connector) Connect(ctx context.Context) (driver.Conn, error) {
+	// modernc.org/sqlite does not expose a context-aware connector, so cancellation is checked before and immediately after opening the local connection
+	err := ctx.Err()
+	if err != nil {
+		return nil, err
+	}
+
+	conn, err := c.base.Open(c.connString)
+	if err != nil {
+		return nil, err
+	}
+
+	err = ctx.Err()
+	if err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+
+	return conn, nil
+}
+
+// Driver implements driver.Connector
+func (c *Connector) Driver() driver.Driver {
+	return c.base
+}
+
+// OpenDB opens a plain sql.DB from the prepared connector and applies pool settings required for correct SQLite behavior
+func (c *Connector) OpenDB() *sql.DB {
+	db := sql.OpenDB(c)
+	c.ConfigureDB(db)
+	return db
+}
+
+// ConfigureDB applies connector-specific pool constraints to db
+// It is used by wrappers that decorate the connector before opening the pool
+func (c *Connector) ConfigureDB(db *sql.DB) {
+	if c.inMemory {
+		// For in-memory SQLite databases, we must limit to 1 open connection at the same time, or they won't see the whole data
+		// The other workaround, of using shared caches, doesn't work well with multiple write transactions trying to happen at once
 		db.SetMaxOpenConns(1)
 	}
+}
 
-	return db, nil
+// Connect opens a SQLite database
+func Connect(opts ConnectOpts) (*sql.DB, error) {
+	connector, err := NewConnector(opts)
+	if err != nil {
+		return nil, err
+	}
+
+	return connector.OpenDB(), nil
 }

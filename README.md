@@ -12,6 +12,7 @@ go get github.com/italypaleale/go-sql-utils
 - **[cleanup](#cleanup)**: Scheduled garbage collection for expired database records, optimized for concurrency in distributed systems
 - **[sqlite](#sqlite)**: Helpers to open and configure SQLite connections safely using the `modernc.org/sqlite` driver
 - **[transactions](#transactions)**: Transaction helpers with automatic rollback
+- **[instrument](#instrument)**: OpenTelemetry tracing and optional query logging for SQL statements
 - **sqladapter** (utility): Unified database interface for `database/sql` and `pgx` drivers
 
 ---
@@ -238,3 +239,62 @@ user, err := postgrestransactions.ExecuteInTransaction(ctx, logger, pool, 30*tim
 - **Automatic rollback**: If your function returns an error, the transaction is rolled back
 - **Timeout support** (pgx): The timeout parameter controls query execution time
 - **Error logging**: Rollback errors are logged but don't override the original error
+
+---
+
+## instrument
+
+The instrument packages provide [OpenTelemetry](https://opentelemetry.io) tracing and optional query logging for SQLite (via the modernc driver) and pgx PostgreSQL connections.
+
+Spans are always emitted and are no-ops until the application configures an OpenTelemetry provider. Exact SQL text is attached to spans and Debug logs only when `QueryLog` is enabled and the configured logger accepts Debug records. Query parameters are never passed to the instrumentation, but inline SQL literals are part of the query text, so avoid placing confidential data directly in SQL strings.
+
+### SQLite (`instrument/sqlite`)
+
+To open a SQLite database whose statements are traced:
+
+```go
+import (
+    "github.com/italypaleale/go-sql-utils/instrument"
+    sqliteinstrument "github.com/italypaleale/go-sql-utils/instrument/sqlite"
+    sqliteutils "github.com/italypaleale/go-sql-utils/sqlite"
+)
+
+connector, err := sqliteutils.NewConnector(sqliteutils.ConnectOpts{
+    // Ideally, use the connection string builder from "github.com/italypaleale/go-sql-utils/sqlite"
+    ConnString: "data.db",
+    Logger:     logger,
+})
+if err != nil {
+    return err
+}
+
+db, err := sqliteinstrument.Open(connector, &instrument.Options{
+    Log:           logger,                  // Logger for query logs (nil disables them)
+    QueryLog:      true,                    // Log every statement with its duration as a debug log
+    SlowThreshold: 250 * time.Millisecond,  // Log statements slower than this threshold as a warn
+})
+if err != nil {
+    return err
+}
+defer db.Close()
+```
+
+### Postgres (`instrument/postgres`)
+
+To attach a tracer to a `pgx` connection pool, covering queries, batches, `COPY`, prepares, connects, and pool acquisitions:
+
+```go
+import (
+    "github.com/italypaleale/go-sql-utils/instrument"
+    postgresinstrument "github.com/italypaleale/go-sql-utils/instrument/postgres"
+)
+
+cfg, err := pgxpool.ParseConfig(connString)
+if err != nil {
+    return err
+}
+// nil selects all instrumentation defaults
+// Any existing tracer may be chained
+cfg.ConnConfig.Tracer = postgresinstrument.NewTracer(nil, cfg.ConnConfig.Tracer)
+pool, err := pgxpool.NewWithConfig(ctx, cfg)
+```
