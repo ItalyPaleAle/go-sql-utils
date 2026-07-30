@@ -73,12 +73,13 @@ func TestIsWritableDir(t *testing.T) {
 		readOnlyDir := filepath.Join(tempDir, "readonly")
 		require.NoError(t, os.Mkdir(readOnlyDir, 0o700))
 		t.Cleanup(func() {
-			_ = os.Chmod(readOnlyDir, 0o700)
+			_ = os.Chmod(readOnlyDir, 0o700) //nolint:gosec // Directories require execute permission to access their contents
 		})
-		require.NoError(t, os.Chmod(readOnlyDir, 0o500))
+		require.NoError(t, os.Chmod(readOnlyDir, 0o500)) //nolint:gosec // Execute permission is required to probe a read-only directory
 
 		probePath := filepath.Join(readOnlyDir, "probe")
-		if err := os.WriteFile(probePath, []byte("test"), 0o600); err == nil {
+		err := os.WriteFile(probePath, []byte("test"), 0o600)
+		if err == nil {
 			_ = os.Remove(probePath)
 			t.Skip("current environment allows writing to read-only directories")
 		}

@@ -59,9 +59,9 @@ func (m Migrations) Perform(ctx context.Context, migrationFns []migrations.Migra
 	// Always rollback the transaction at the end to release the lock, since the value doesn't really matter
 	defer func() {
 		logger.DebugContext(ctx, "Releasing migration lock")
-		queryCtx, cancel = context.WithTimeout(ctx, 15*time.Second)
-		rollbackErr := tx.Rollback(queryCtx)
-		cancel()
+		rollbackCtx, rollbackCancel := context.WithTimeout(ctx, 15*time.Second)
+		rollbackErr := tx.Rollback(rollbackCtx)
+		rollbackCancel()
 		if rollbackErr != nil {
 			// Panicking here, as this forcibly closes the session and thus ensures we are not leaving locks hanging around
 			logger.ErrorContext(ctx, "Failed to rollback transaction", slog.Any("error", rollbackErr))

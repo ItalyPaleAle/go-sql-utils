@@ -30,7 +30,7 @@ type PgxConn interface {
 	Exec(ctx context.Context, query string, args ...any) (pgconn.CommandTag, error)
 }
 
-// Interface that contains methods for querying.
+// PGXQuerier contains methods for querying
 // Applies to *pgx.Conn, *pgxpool.Pool, and pgx.Tx
 type PGXQuerier interface {
 	Exec(ctx context.Context, query string, args ...any) (pgconn.CommandTag, error)
@@ -38,7 +38,7 @@ type PGXQuerier interface {
 	QueryRow(ctx context.Context, query string, args ...any) pgx.Row
 }
 
-// Interface that applies to *pgxpool.Pool.
+// PGXPoolConn contains the methods provided by *pgxpool.Pool
 type PGXPoolConn interface {
 	PGXQuerier
 

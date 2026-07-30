@@ -83,7 +83,7 @@ func TestExecuteInTransaction_Rollback(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Equal(t, expectedErr, err)
-	assert.Equal(t, "", result)
+	assert.Empty(t, result)
 
 	// Verify data was not committed (rollback happened)
 	var count int

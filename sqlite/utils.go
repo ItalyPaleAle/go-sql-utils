@@ -28,7 +28,7 @@ func EnsureDatabaseDir(dbPath string) error {
 		}
 		return nil
 	case os.IsNotExist(err):
-		err = os.MkdirAll(dir, 0700)
+		err = os.MkdirAll(dir, 0o700)
 		if err != nil {
 			return fmt.Errorf("failed to create SQLite database directory '%s': %w", dir, err)
 		}

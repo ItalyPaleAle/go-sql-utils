@@ -391,7 +391,10 @@ func TestNestedPgxTracersKeepIndependentSpanState(t *testing.T) {
 func TestPgxBatchQueryErrorFailsBatchSpan(t *testing.T) {
 	sr := setupSpanRecorder(t)
 
-	tracer := NewTracer(nil).(pgx.BatchTracer)
+	queryTracer := NewTracer(nil)
+	tracer, ok := queryTracer.(pgx.BatchTracer)
+	require.True(t, ok, "composite must implement pgx.BatchTracer")
+
 	ctx := tracer.TraceBatchStart(t.Context(), nil, pgx.TraceBatchStartData{})
 	tracer.TraceBatchQuery(ctx, nil, pgx.TraceBatchQueryData{
 		SQL: "SELECT broken",
@@ -408,10 +411,12 @@ func TestPgxAcquireDoesNotEmitQueryLog(t *testing.T) {
 	setupSpanRecorder(t)
 
 	handler := newCaptureHandler()
-	tracer := NewTracer(&instrument.Options{
+	queryTracer := NewTracer(&instrument.Options{
 		Log:      slog.New(handler),
 		QueryLog: true,
-	}).(pgxpool.AcquireTracer)
+	})
+	tracer, ok := queryTracer.(pgxpool.AcquireTracer)
+	require.True(t, ok, "composite must implement pgxpool.AcquireTracer")
 
 	ctx := tracer.TraceAcquireStart(t.Context(), nil, pgxpool.TraceAcquireStartData{})
 	tracer.TraceAcquireEnd(ctx, nil, pgxpool.TraceAcquireEndData{})
@@ -437,10 +442,12 @@ func TestPgxBatchLogsEachStatementWithoutBlankAggregate(t *testing.T) {
 	setupSpanRecorder(t)
 
 	handler := newCaptureHandler()
-	tracer := NewTracer(&instrument.Options{
+	queryTracer := NewTracer(&instrument.Options{
 		Log:      slog.New(handler),
 		QueryLog: true,
-	}).(pgx.BatchTracer)
+	})
+	tracer, ok := queryTracer.(pgx.BatchTracer)
+	require.True(t, ok, "composite must implement pgx.BatchTracer")
 
 	ctx := tracer.TraceBatchStart(t.Context(), nil, pgx.TraceBatchStartData{})
 	tracer.TraceBatchQuery(ctx, nil, pgx.TraceBatchQueryData{SQL: "SELECT 1"})

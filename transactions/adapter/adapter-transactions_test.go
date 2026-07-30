@@ -111,7 +111,7 @@ func TestExecuteInTransaction_SQL_Rollback(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Equal(t, expectedErr, err)
-	assert.Equal(t, "", result)
+	assert.Empty(t, result)
 
 	// Verify data was not committed (rollback happened)
 	var count int
@@ -234,7 +234,7 @@ func TestExecuteInTransaction_Postgres_Rollback(t *testing.T) {
 
 	require.Error(t, err)
 	require.ErrorIs(t, err, expectedErr)
-	assert.Equal(t, "", result)
+	assert.Empty(t, result)
 
 	// Verify data was not committed (rollback happened)
 	var count int

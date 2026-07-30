@@ -68,23 +68,22 @@ func (m *Migrations) Perform(ctx context.Context, migrationFns []migrations.Migr
 			return fmt.Sprintf(`REPLACE INTO %s (key, value) VALUES ('%s', ?)`, m.MetadataTableName, m.MetadataKey),
 				version
 		},
-		EnsureMetadataTable: func(ctx context.Context) error {
+		EnsureMetadataTable: func(ctx context.Context) (rErr error) {
 			// Check if the metadata table exists, which we also use to store the migration level
-			queryCtx, cancel = context.WithTimeout(ctx, 30*time.Second)
-			var exists bool
-			exists, err = m.tableExists(queryCtx, m.conn)
-			cancel()
-			if err != nil {
-				return fmt.Errorf("failed to check if the metadata table exists: %w", err)
+			rCtx, rCancel := context.WithTimeout(ctx, 30*time.Second)
+			exists, rErr := m.tableExists(rCtx, m.conn)
+			rCancel()
+			if rErr != nil {
+				return fmt.Errorf("failed to check if the metadata table exists: %w", rErr)
 			}
 
 			// If the table doesn't exist, create it
 			if !exists {
-				queryCtx, cancel = context.WithTimeout(ctx, 30*time.Second)
-				err = m.createMetadataTable(queryCtx, m.conn, logger)
-				cancel()
-				if err != nil {
-					return fmt.Errorf("failed to create metadata table: %w", err)
+				rCtx, rCancel = context.WithTimeout(ctx, 30*time.Second)
+				rErr = m.createMetadataTable(rCtx, m.conn, logger)
+				rCancel()
+				if rErr != nil {
+					return fmt.Errorf("failed to create metadata table: %w", rErr)
 				}
 			}
 

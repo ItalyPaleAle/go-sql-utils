@@ -95,6 +95,7 @@ func (t *pgxTracer) endCall(ctx context.Context, op string, err error, logging l
 func (t *pgxTracer) TraceQueryStart(ctx context.Context, conn *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
 	ctx = t.startCall(ctx, "query", data.SQL)
 	for _, chained := range t.chain {
+		//nolint:fatcontext // Each chained tracer must receive the context returned by the previous tracer
 		ctx = chained.TraceQueryStart(ctx, conn, data)
 	}
 	return ctx
@@ -112,6 +113,7 @@ func (t *pgxTracer) TraceBatchStart(ctx context.Context, conn *pgx.Conn, data pg
 	for _, chained := range t.chain {
 		tracer, ok := chained.(pgx.BatchTracer)
 		if ok {
+			//nolint:fatcontext // Each chained tracer must receive the context returned by the previous tracer
 			ctx = tracer.TraceBatchStart(ctx, conn, data)
 		}
 	}
@@ -154,6 +156,7 @@ func (t *pgxTracer) TraceCopyFromStart(ctx context.Context, conn *pgx.Conn, data
 	for _, chained := range t.chain {
 		tracer, ok := chained.(pgx.CopyFromTracer)
 		if ok {
+			//nolint:fatcontext // Each chained tracer must receive the context returned by the previous tracer
 			ctx = tracer.TraceCopyFromStart(ctx, conn, data)
 		}
 	}
@@ -177,6 +180,7 @@ func (t *pgxTracer) TracePrepareStart(ctx context.Context, conn *pgx.Conn, data 
 	for _, chained := range t.chain {
 		tracer, ok := chained.(pgx.PrepareTracer)
 		if ok {
+			//nolint:fatcontext // Each chained tracer must receive the context returned by the previous tracer
 			ctx = tracer.TracePrepareStart(ctx, conn, data)
 		}
 	}
@@ -200,6 +204,7 @@ func (t *pgxTracer) TraceConnectStart(ctx context.Context, data pgx.TraceConnect
 	for _, chained := range t.chain {
 		tracer, ok := chained.(pgx.ConnectTracer)
 		if ok {
+			//nolint:fatcontext // Each chained tracer must receive the context returned by the previous tracer
 			ctx = tracer.TraceConnectStart(ctx, data)
 		}
 	}
@@ -223,6 +228,7 @@ func (t *pgxTracer) TraceAcquireStart(ctx context.Context, pool *pgxpool.Pool, d
 	for _, chained := range t.chain {
 		tracer, ok := chained.(pgxpool.AcquireTracer)
 		if ok {
+			//nolint:fatcontext // Each chained tracer must receive the context returned by the previous tracer
 			ctx = tracer.TraceAcquireStart(ctx, pool, data)
 		}
 	}

@@ -81,9 +81,9 @@ func Migrate(ctx context.Context, db adapter.DatabaseConn, opts MigrationOptions
 		}
 
 		query, arg := opts.UpdateVersionQuery(strconv.Itoa(i + 1))
-		queryCtx, cancel = context.WithTimeout(ctx, 30*time.Second)
-		_, err = db.Exec(queryCtx, query, arg)
-		cancel()
+		updateCtx, updateCancel := context.WithTimeout(ctx, 30*time.Second)
+		_, err = db.Exec(updateCtx, query, arg)
+		updateCancel()
 		if err != nil {
 			return fmt.Errorf("failed to update migration level in metadata table: %w", err)
 		}

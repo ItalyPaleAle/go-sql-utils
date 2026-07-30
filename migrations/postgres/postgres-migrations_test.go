@@ -55,7 +55,7 @@ func cleanupTestTable(t *testing.T, pool *pgxpool.Pool, tableName string) {
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 
-	_, _ = pool.Exec(ctx, fmt.Sprintf("DROP TABLE IF EXISTS %s", tableName))
+	_, _ = pool.Exec(ctx, "DROP TABLE IF EXISTS "+tableName)
 }
 
 func TestMigrations_Perform(t *testing.T) {

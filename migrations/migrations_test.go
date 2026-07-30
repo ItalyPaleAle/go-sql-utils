@@ -6,7 +6,6 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"log/slog"
 	"os"
 	"testing"
@@ -406,7 +405,7 @@ func TestMigrate_PartialMigrationFailure(t *testing.T) {
 			},
 			func(ctx context.Context) error {
 				executed = append(executed, 2)
-				return fmt.Errorf("migration 2 failed")
+				return errors.New("migration 2 failed")
 			},
 			func(ctx context.Context) error {
 				executed = append(executed, 3)
