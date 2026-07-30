@@ -25,7 +25,6 @@ type Options struct {
 	Log *slog.Logger
 
 	// QueryLog enables Debug logs for completed SQL statements
-	// Statement text is also attached to spans only while this option is enabled and the logger's Debug level is active
 	QueryLog bool
 
 	// SlowThreshold emits Warn logs for queries and selected database operations at or above this duration
@@ -73,6 +72,7 @@ type Instrumentation struct {
 	log           *slog.Logger
 	queryLog      bool
 	slowThreshold time.Duration
+	tracer        trace.Tracer
 }
 
 // NewInstrumentation resolves opts for system
@@ -83,11 +83,12 @@ func NewInstrumentation(system string, opts *Options) *Instrumentation {
 		log:           opts.Logger(),
 		queryLog:      opts.QueryLoggingEnabled(),
 		slowThreshold: opts.SlowQueryThreshold(),
+		tracer:        otel.Tracer(instrumentationName, trace.WithSchemaURL(semconv.SchemaURL)),
 	}
 }
 
 // StartSpan starts a client span for a database operation
-// SQL text is attached only when per-query Debug logging is active
+// Full SQL text is attached to spans, but without parameters: make sure not to include confidential information in SQL queries themselves
 // Bound argument values are never supplied to this package
 //
 //nolint:spancheck // The span is returned and ended by the matching driver callback
@@ -100,12 +101,11 @@ func (i *Instrumentation) StartSpan(ctx context.Context, op, statement string) (
 			semconv.DBOperationName(op),
 		),
 	)
-	if i.debugEnabled(ctx) && statement != "" {
+	if statement != "" {
 		attrs = append(attrs, trace.WithAttributes(semconv.DBQueryText(statement)))
 	}
 
-	tracer := otel.Tracer(instrumentationName, trace.WithSchemaURL(semconv.SchemaURL))
-	return tracer.Start(ctx, i.system+"."+op, attrs...)
+	return i.tracer.Start(ctx, i.system+"."+op, attrs...)
 }
 
 // EndSpan records err, when non-nil, and ends span
@@ -165,10 +165,10 @@ func (i *Instrumentation) EmitSlowOperationLog(ctx context.Context, op string, d
 }
 
 // AddQueryEvent adds a statement event to a larger database operation, such as a pgx batch
-// Exact SQL text follows the same Debug-level gate as query logs
+// Exact SQL text is attached to traces independently from logging
 func (i *Instrumentation) AddQueryEvent(ctx context.Context, span trace.Span, statement string) {
 	options := make([]trace.EventOption, 0, 1)
-	if i.debugEnabled(ctx) && statement != "" {
+	if statement != "" {
 		options = append(options, trace.WithAttributes(semconv.DBQueryText(statement)))
 	}
 	span.AddEvent("query", options...)

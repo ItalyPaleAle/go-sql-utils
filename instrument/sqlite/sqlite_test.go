@@ -298,25 +298,6 @@ func TestQueryLogEmitsDebugRecordsWithoutParameters(t *testing.T) {
 	assert.Contains(t, statements, "INSERT INTO items (id, val) VALUES (?, ?)")
 }
 
-func TestQueryLogDisabledByDefault(t *testing.T) {
-	sr := setupSpanRecorder(t)
-
-	handler := newCaptureHandler()
-	db := openTestDB(t, &instrument.Options{
-		Log: slog.New(handler),
-	})
-
-	_, err := db.ExecContext(t.Context(), "CREATE TABLE items (id TEXT PRIMARY KEY)")
-	require.NoError(t, err)
-
-	assert.Empty(t, handler.records)
-	span := spansByName(t, sr)["sqlite.exec"]
-	require.NotNil(t, span)
-
-	_, hasQueryText := spanAttr(span, "db.query.text")
-	assert.False(t, hasQueryText, "SQL text must not be exported unless Debug query logging is active")
-}
-
 func TestSlowThresholdEmitsWarnRecords(t *testing.T) {
 	setupSpanRecorder(t)
 

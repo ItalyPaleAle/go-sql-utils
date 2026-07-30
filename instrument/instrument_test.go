@@ -110,25 +110,6 @@ func TestInstrumentationSnapshotsOptions(t *testing.T) {
 	assert.Empty(t, secondHandler.records)
 }
 
-func TestQueryTextRequiresActiveDebugLogging(t *testing.T) {
-	recorder := recordSpans(t)
-	handler := &testHandler{level: slog.LevelInfo}
-	instrumentation := NewInstrumentation("sqlite", &Options{
-		Log:      slog.New(handler),
-		QueryLog: true,
-	})
-
-	_, span := instrumentation.StartSpan(t.Context(), "query", "SELECT secret")
-	EndSpan(span, nil)
-	instrumentation.EmitQueryLog(t.Context(), "query", "SELECT secret", time.Millisecond, nil)
-
-	ended := recorder.Ended()
-	require.Len(t, ended, 1)
-	_, ok := readSpanAttr(ended[0], "db.query.text")
-	assert.False(t, ok)
-	assert.Empty(t, handler.records)
-}
-
 func TestSlowWarningOmitsQueryTextWhenDebugIsDisabled(t *testing.T) {
 	handler := &testHandler{level: slog.LevelInfo}
 	instrumentation := NewInstrumentation("sqlite", &Options{
