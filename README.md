@@ -246,7 +246,9 @@ user, err := postgrestransactions.ExecuteInTransaction(ctx, logger, pool, 30*tim
 
 The instrument packages provide [OpenTelemetry](https://opentelemetry.io) tracing and optional query logging for SQLite (via the modernc driver) and pgx PostgreSQL connections.
 
-Spans are always emitted and are no-ops until the application configures an OpenTelemetry provider. Exact SQL text is attached to spans and Debug logs only when `QueryLog` is enabled and the configured logger accepts Debug records. Query parameters are never passed to the instrumentation, but inline SQL literals are part of the query text, so avoid placing confidential data directly in SQL strings.
+Spans are always emitted and are no-ops until the application configures an OpenTelemetry provider. Exact SQL text is attached to spans, while SQL text in logs is normalized to one line with consecutive whitespace condensed. Debug logs include SQL text when `QueryLog` is enabled and the configured logger accepts Debug records. Every SQL log also includes the source file and line of the query call as `code.file.path` and `code.line.number`.
+
+Query parameters are excluded by default because they may contain sensitive values. Set `IncludeParameters` to include them as `db.query.parameter.<name-or-position>` attributes in traces and in SQL logs that already include query text. Slow-query Warn logs omit both SQL text and parameters unless Debug query logging is active.
 
 ### SQLite (`instrument/sqlite`)
 
@@ -269,9 +271,10 @@ if err != nil {
 }
 
 db, err := sqliteinstrument.Open(connector, &instrument.Options{
-    Log:           logger,                  // Logger for query logs (nil disables them)
-    QueryLog:      true,                    // Log every statement with its duration as a debug log
-    SlowThreshold: 250 * time.Millisecond,  // Log statements slower than this threshold as a warn
+	Log:               logger,                  // Logger for query logs (nil disables them)
+	QueryLog:          true,                    // Log every statement with its duration as a debug log
+	IncludeParameters: false,                   // Include bound values in traces and SQL text logs (default false)
+	SlowThreshold:     250 * time.Millisecond,  // Log statements slower than this threshold as a warn
 })
 if err != nil {
     return err

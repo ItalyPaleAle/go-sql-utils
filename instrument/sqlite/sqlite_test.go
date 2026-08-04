@@ -125,6 +125,20 @@ func attrStrings(r slog.Record) []string {
 	return vals
 }
 
+func recordAttr(record slog.Record, key string) (slog.Value, bool) {
+	var value slog.Value
+	found := false
+	record.Attrs(func(attr slog.Attr) bool {
+		if attr.Key == key {
+			value = attr.Value
+			found = true
+		}
+		return true
+	})
+
+	return value, found
+}
+
 func TestExecAndQueryProduceSpans(t *testing.T) {
 	sr := setupSpanRecorder(t)
 	db := openTestDB(t, &instrument.Options{
@@ -296,6 +310,49 @@ func TestQueryLogEmitsDebugRecordsWithoutParameters(t *testing.T) {
 		})
 	}
 	assert.Contains(t, statements, "INSERT INTO items (id, val) VALUES (?, ?)")
+}
+
+func TestQueryParametersAndNormalizedTextAreIncludedWhenEnabled(t *testing.T) {
+	sr := setupSpanRecorder(t)
+	handler := newCaptureHandler()
+	db := openTestDB(t, &instrument.Options{
+		Log:               slog.New(handler),
+		QueryLog:          true,
+		IncludeParameters: true,
+	})
+	ctx := t.Context()
+
+	_, err := db.ExecContext(ctx, "CREATE TABLE items (id TEXT PRIMARY KEY, val TEXT)")
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx, "\n\tINSERT  INTO items (id, val)\nVALUES (:item_id, ?)\t", sql.Named("item_id", "param-id-xyz"), "secret-value-123")
+	require.NoError(t, err)
+
+	span := spansByName(t, sr)["sqlite.exec"]
+	require.NotNil(t, span)
+	itemID, ok := spanAttr(span, "db.query.parameter.item_id")
+	require.True(t, ok)
+	assert.Equal(t, "param-id-xyz", itemID)
+	value, ok := spanAttr(span, "db.query.parameter.2")
+	require.True(t, ok)
+	assert.Equal(t, "secret-value-123", value)
+
+	require.Len(t, handler.records, 2)
+	record := handler.records[1]
+	query, ok := recordAttr(record, "db.query.text")
+	require.True(t, ok)
+	assert.Equal(t, "INSERT INTO items (id, val) VALUES (:item_id, ?)", query.String())
+	logItemID, ok := recordAttr(record, "db.query.parameter.item_id")
+	require.True(t, ok)
+	assert.Equal(t, "param-id-xyz", logItemID.String())
+	logValue, ok := recordAttr(record, "db.query.parameter.2")
+	require.True(t, ok)
+	assert.Equal(t, "secret-value-123", logValue.String())
+	file, ok := recordAttr(record, "code.file.path")
+	require.True(t, ok)
+	assert.Equal(t, "sqlite_test.go", file.String())
+	line, ok := recordAttr(record, "code.line.number")
+	require.True(t, ok)
+	assert.Positive(t, line.Int64())
 }
 
 func TestSlowThresholdEmitsWarnRecords(t *testing.T) {

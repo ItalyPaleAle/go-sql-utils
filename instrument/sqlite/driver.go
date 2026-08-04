@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"reflect"
+	"strconv"
 	"sync"
 	"time"
 
@@ -121,23 +122,25 @@ func (c *wrappedConn) BeginTx(ctx context.Context, opts driver.TxOptions) (drive
 }
 
 func (c *wrappedConn) ExecContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
-	_, span := c.instrumentation.StartSpan(ctx, "exec", query)
+	parameters := namedQueryParameters(args)
+	spanCtx, span := c.instrumentation.StartQuerySpan(ctx, "exec", query, parameters)
 	start := time.Now()
 
 	res, err := c.base.ExecContext(ctx, query, args)
 	instrument.EndSpan(span, err)
-	c.instrumentation.EmitQueryLog(ctx, "exec", query, time.Since(start), err)
+	c.instrumentation.EmitQueryLogWithParameters(spanCtx, "exec", query, parameters, time.Since(start), err)
 	return res, err
 }
 
 func (c *wrappedConn) QueryContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
-	_, span := c.instrumentation.StartSpan(ctx, "query", query)
+	parameters := namedQueryParameters(args)
+	spanCtx, span := c.instrumentation.StartQuerySpan(ctx, "query", query, parameters)
 	start := time.Now()
 
 	rows, err := c.base.QueryContext(ctx, query, args)
 	if err != nil {
 		instrument.EndSpan(span, err)
-		c.instrumentation.EmitQueryLog(ctx, "query", query, time.Since(start), err)
+		c.instrumentation.EmitQueryLogWithParameters(spanCtx, "query", query, parameters, time.Since(start), err)
 		return nil, err
 	}
 
@@ -146,12 +149,12 @@ func (c *wrappedConn) QueryContext(ctx context.Context, query string, args []dri
 		_ = rows.Close()
 		err = fmt.Errorf("unsupported SQLite driver rows %T", rows)
 		instrument.EndSpan(span, err)
-		c.instrumentation.EmitQueryLog(ctx, "query", query, time.Since(start), err)
+		c.instrumentation.EmitQueryLogWithParameters(spanCtx, "query", query, parameters, time.Since(start), err)
 		return nil, err
 	}
 
 	return newWrappedRows(base, span, func(rowErr error) {
-		c.instrumentation.EmitQueryLog(ctx, "query", query, time.Since(start), rowErr)
+		c.instrumentation.EmitQueryLogWithParameters(spanCtx, "query", query, parameters, time.Since(start), rowErr)
 	}), nil
 }
 
@@ -182,47 +185,47 @@ func (s *wrappedStmt) NumInput() int {
 }
 
 func (s *wrappedStmt) Exec(args []driver.Value) (driver.Result, error) {
-	return s.exec(context.Background(), func() (driver.Result, error) {
+	return s.exec(context.Background(), valueQueryParameters(args), func() (driver.Result, error) {
 		return s.base.Exec(args)
 	})
 }
 
 func (s *wrappedStmt) ExecContext(ctx context.Context, args []driver.NamedValue) (driver.Result, error) {
-	return s.exec(ctx, func() (driver.Result, error) {
+	return s.exec(ctx, namedQueryParameters(args), func() (driver.Result, error) {
 		return s.base.ExecContext(ctx, args)
 	})
 }
 
-func (s *wrappedStmt) exec(ctx context.Context, exec func() (driver.Result, error)) (driver.Result, error) {
-	_, span := s.instrumentation.StartSpan(ctx, "exec", s.statement)
+func (s *wrappedStmt) exec(ctx context.Context, parameters []instrument.QueryParameter, exec func() (driver.Result, error)) (driver.Result, error) {
+	spanCtx, span := s.instrumentation.StartQuerySpan(ctx, "exec", s.statement, parameters)
 	start := time.Now()
 
 	res, err := exec()
 	instrument.EndSpan(span, err)
-	s.instrumentation.EmitQueryLog(ctx, "exec", s.statement, time.Since(start), err)
+	s.instrumentation.EmitQueryLogWithParameters(spanCtx, "exec", s.statement, parameters, time.Since(start), err)
 	return res, err
 }
 
 func (s *wrappedStmt) Query(args []driver.Value) (driver.Rows, error) {
-	return s.queryRows(context.Background(), func() (driver.Rows, error) {
+	return s.queryRows(context.Background(), valueQueryParameters(args), func() (driver.Rows, error) {
 		return s.base.Query(args)
 	})
 }
 
 func (s *wrappedStmt) QueryContext(ctx context.Context, args []driver.NamedValue) (driver.Rows, error) {
-	return s.queryRows(ctx, func() (driver.Rows, error) {
+	return s.queryRows(ctx, namedQueryParameters(args), func() (driver.Rows, error) {
 		return s.base.QueryContext(ctx, args)
 	})
 }
 
-func (s *wrappedStmt) queryRows(ctx context.Context, query func() (driver.Rows, error)) (driver.Rows, error) {
-	_, span := s.instrumentation.StartSpan(ctx, "query", s.statement)
+func (s *wrappedStmt) queryRows(ctx context.Context, parameters []instrument.QueryParameter, query func() (driver.Rows, error)) (driver.Rows, error) {
+	spanCtx, span := s.instrumentation.StartQuerySpan(ctx, "query", s.statement, parameters)
 	start := time.Now()
 
 	rows, err := query()
 	if err != nil {
 		instrument.EndSpan(span, err)
-		s.instrumentation.EmitQueryLog(ctx, "query", s.statement, time.Since(start), err)
+		s.instrumentation.EmitQueryLogWithParameters(spanCtx, "query", s.statement, parameters, time.Since(start), err)
 		return nil, err
 	}
 
@@ -231,12 +234,12 @@ func (s *wrappedStmt) queryRows(ctx context.Context, query func() (driver.Rows, 
 		_ = rows.Close()
 		err = fmt.Errorf("unsupported SQLite driver rows %T", rows)
 		instrument.EndSpan(span, err)
-		s.instrumentation.EmitQueryLog(ctx, "query", s.statement, time.Since(start), err)
+		s.instrumentation.EmitQueryLogWithParameters(spanCtx, "query", s.statement, parameters, time.Since(start), err)
 		return nil, err
 	}
 
 	return newWrappedRows(base, span, func(rowErr error) {
-		s.instrumentation.EmitQueryLog(ctx, "query", s.statement, time.Since(start), rowErr)
+		s.instrumentation.EmitQueryLogWithParameters(spanCtx, "query", s.statement, parameters, time.Since(start), rowErr)
 	}), nil
 }
 
@@ -328,6 +331,34 @@ func (r *wrappedRows) ColumnTypePrecisionScale(index int) (int64, int64, bool) {
 
 func (r *wrappedRows) ColumnTypeScanType(index int) reflect.Type {
 	return r.base.ColumnTypeScanType(index)
+}
+
+func namedQueryParameters(args []driver.NamedValue) []instrument.QueryParameter {
+	parameters := make([]instrument.QueryParameter, len(args))
+	for i, arg := range args {
+		name := arg.Name
+		if name == "" {
+			name = strconv.Itoa(arg.Ordinal)
+		}
+		parameters[i] = instrument.QueryParameter{
+			Name:  name,
+			Value: arg.Value,
+		}
+	}
+
+	return parameters
+}
+
+func valueQueryParameters(args []driver.Value) []instrument.QueryParameter {
+	parameters := make([]instrument.QueryParameter, len(args))
+	for i, arg := range args {
+		parameters[i] = instrument.QueryParameter{
+			Name:  strconv.Itoa(i + 1),
+			Value: arg,
+		}
+	}
+
+	return parameters
 }
 
 var (

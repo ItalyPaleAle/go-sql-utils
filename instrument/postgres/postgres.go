@@ -5,6 +5,8 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"sort"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -25,11 +27,12 @@ type ctxKey struct {
 }
 
 type pgxCallState struct {
-	span      trace.Span
-	start     time.Time
-	lastQuery time.Time
-	statement string
-	firstErr  error
+	span       trace.Span
+	start      time.Time
+	lastQuery  time.Time
+	statement  string
+	parameters []instrument.QueryParameter
+	firstErr   error
 }
 
 type logKind uint8
@@ -56,14 +59,15 @@ func NewTracer(opts *instrument.Options, chain ...pgx.QueryTracer) pgx.QueryTrac
 }
 
 //nolint:spancheck // The span is ended by the matching pgx End callback
-func (t *pgxTracer) startCall(ctx context.Context, op, statement string) context.Context {
-	spanCtx, span := t.instrumentation.StartSpan(ctx, op, statement)
+func (t *pgxTracer) startCall(ctx context.Context, op, statement string, parameters []instrument.QueryParameter) context.Context {
+	spanCtx, span := t.instrumentation.StartQuerySpan(ctx, op, statement, parameters)
 	now := time.Now()
 	state := &pgxCallState{
-		span:      span,
-		start:     now,
-		lastQuery: now,
-		statement: statement,
+		span:       span,
+		start:      now,
+		lastQuery:  now,
+		statement:  statement,
+		parameters: parameters,
 	}
 	return context.WithValue(spanCtx, ctxKey{tracer: t}, state)
 }
@@ -85,7 +89,7 @@ func (t *pgxTracer) endCall(ctx context.Context, op string, err error, logging l
 
 	switch logging {
 	case logQuery:
-		t.instrumentation.EmitQueryLog(ctx, op, state.statement, dur, err)
+		t.instrumentation.EmitQueryLogWithParameters(ctx, op, state.statement, state.parameters, dur, err)
 	case logSlowOperation:
 		t.instrumentation.EmitSlowOperationLog(ctx, op, dur, err)
 	case logNone:
@@ -93,7 +97,7 @@ func (t *pgxTracer) endCall(ctx context.Context, op string, err error, logging l
 }
 
 func (t *pgxTracer) TraceQueryStart(ctx context.Context, conn *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
-	ctx = t.startCall(ctx, "query", data.SQL)
+	ctx = t.startCall(ctx, "query", data.SQL, queryParameters(data.Args))
 	for _, chained := range t.chain {
 		//nolint:fatcontext // Each chained tracer must receive the context returned by the previous tracer
 		ctx = chained.TraceQueryStart(ctx, conn, data)
@@ -109,7 +113,7 @@ func (t *pgxTracer) TraceQueryEnd(ctx context.Context, conn *pgx.Conn, data pgx.
 }
 
 func (t *pgxTracer) TraceBatchStart(ctx context.Context, conn *pgx.Conn, data pgx.TraceBatchStartData) context.Context {
-	ctx = t.startCall(ctx, "batch", "")
+	ctx = t.startCall(ctx, "batch", "", nil)
 	for _, chained := range t.chain {
 		tracer, ok := chained.(pgx.BatchTracer)
 		if ok {
@@ -124,8 +128,9 @@ func (t *pgxTracer) TraceBatchQuery(ctx context.Context, conn *pgx.Conn, data pg
 	state := t.callState(ctx)
 	if state != nil {
 		now := time.Now()
-		t.instrumentation.AddQueryEvent(ctx, state.span, data.SQL)
-		t.instrumentation.EmitQueryLog(ctx, "query", data.SQL, now.Sub(state.lastQuery), data.Err)
+		parameters := queryParameters(data.Args)
+		t.instrumentation.AddQueryEventWithParameters(ctx, state.span, data.SQL, parameters)
+		t.instrumentation.EmitQueryLogWithParameters(ctx, "query", data.SQL, parameters, now.Sub(state.lastQuery), data.Err)
 		state.lastQuery = now
 		if data.Err != nil && state.firstErr == nil {
 			state.firstErr = data.Err
@@ -152,7 +157,7 @@ func (t *pgxTracer) TraceBatchEnd(ctx context.Context, conn *pgx.Conn, data pgx.
 }
 
 func (t *pgxTracer) TraceCopyFromStart(ctx context.Context, conn *pgx.Conn, data pgx.TraceCopyFromStartData) context.Context {
-	ctx = t.startCall(ctx, "copy_from", "")
+	ctx = t.startCall(ctx, "copy_from", "", nil)
 	for _, chained := range t.chain {
 		tracer, ok := chained.(pgx.CopyFromTracer)
 		if ok {
@@ -176,7 +181,7 @@ func (t *pgxTracer) TraceCopyFromEnd(ctx context.Context, conn *pgx.Conn, data p
 }
 
 func (t *pgxTracer) TracePrepareStart(ctx context.Context, conn *pgx.Conn, data pgx.TracePrepareStartData) context.Context {
-	ctx = t.startCall(ctx, "prepare", data.SQL)
+	ctx = t.startCall(ctx, "prepare", data.SQL, nil)
 	for _, chained := range t.chain {
 		tracer, ok := chained.(pgx.PrepareTracer)
 		if ok {
@@ -200,7 +205,7 @@ func (t *pgxTracer) TracePrepareEnd(ctx context.Context, conn *pgx.Conn, data pg
 }
 
 func (t *pgxTracer) TraceConnectStart(ctx context.Context, data pgx.TraceConnectStartData) context.Context {
-	ctx = t.startCall(ctx, "connect", "")
+	ctx = t.startCall(ctx, "connect", "", nil)
 	for _, chained := range t.chain {
 		tracer, ok := chained.(pgx.ConnectTracer)
 		if ok {
@@ -224,7 +229,7 @@ func (t *pgxTracer) TraceConnectEnd(ctx context.Context, data pgx.TraceConnectEn
 }
 
 func (t *pgxTracer) TraceAcquireStart(ctx context.Context, pool *pgxpool.Pool, data pgxpool.TraceAcquireStartData) context.Context {
-	ctx = t.startCall(ctx, "pool.acquire", "")
+	ctx = t.startCall(ctx, "pool.acquire", "", nil)
 	for _, chained := range t.chain {
 		tracer, ok := chained.(pgxpool.AcquireTracer)
 		if ok {
@@ -254,4 +259,45 @@ func (t *pgxTracer) TraceRelease(pool *pgxpool.Pool, data pgxpool.TraceReleaseDa
 			tracer.TraceRelease(pool, data)
 		}
 	}
+}
+
+func queryParameters(args []any) []instrument.QueryParameter {
+	parameters := make([]instrument.QueryParameter, 0, len(args))
+	position := 1
+	for _, arg := range args {
+		switch value := arg.(type) {
+		case pgx.NamedArgs:
+			parameters = append(parameters, namedQueryParameters(map[string]any(value))...)
+		case pgx.StrictNamedArgs:
+			parameters = append(parameters, namedQueryParameters(map[string]any(value))...)
+		case pgx.QueryExecMode, pgx.QueryResultFormats, pgx.QueryResultFormatsByOID, pgx.QueryRewriter:
+			continue
+		default:
+			parameters = append(parameters, instrument.QueryParameter{
+				Name:  strconv.Itoa(position),
+				Value: value,
+			})
+			position++
+		}
+	}
+
+	return parameters
+}
+
+func namedQueryParameters(args map[string]any) []instrument.QueryParameter {
+	names := make([]string, 0, len(args))
+	for name := range args {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	parameters := make([]instrument.QueryParameter, len(names))
+	for i, name := range names {
+		parameters[i] = instrument.QueryParameter{
+			Name:  name,
+			Value: args[name],
+		}
+	}
+
+	return parameters
 }

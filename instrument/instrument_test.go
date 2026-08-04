@@ -63,11 +63,26 @@ func readSpanAttr(span sdktrace.ReadOnlySpan, key string) (string, bool) {
 	return "", false
 }
 
+func readRecordAttr(record slog.Record, key string) (slog.Value, bool) {
+	var value slog.Value
+	found := false
+	record.Attrs(func(attr slog.Attr) bool {
+		if attr.Key == key {
+			value = attr.Value
+			found = true
+		}
+		return true
+	})
+
+	return value, found
+}
+
 func TestNilOptionsUseZeroValueDefaults(t *testing.T) {
 	var opts *Options
 	assert.Equal(t, "sqlite", opts.SystemName("sqlite"))
 	assert.Nil(t, opts.Logger())
 	assert.False(t, opts.QueryLoggingEnabled())
+	assert.False(t, opts.QueryParametersIncluded())
 	assert.Zero(t, opts.SlowQueryThreshold())
 }
 
@@ -80,9 +95,10 @@ func TestInstrumentationSnapshotsOptions(t *testing.T) {
 	firstHandler := &testHandler{level: slog.LevelDebug}
 	secondHandler := &testHandler{level: slog.LevelDebug}
 	opts := &Options{
-		System:   "custom-db",
-		Log:      slog.New(firstHandler),
-		QueryLog: true,
+		System:            "custom-db",
+		Log:               slog.New(firstHandler),
+		QueryLog:          true,
+		IncludeParameters: true,
 	}
 	instrumentation := NewInstrumentation("fallback", opts)
 
@@ -90,10 +106,11 @@ func TestInstrumentationSnapshotsOptions(t *testing.T) {
 	opts.System = "mutated"
 	opts.Log = slog.New(secondHandler)
 	opts.QueryLog = false
+	opts.IncludeParameters = false
 
-	_, span := instrumentation.StartSpan(t.Context(), "query", "SELECT 1")
+	ctx, span := instrumentation.StartQuerySpan(t.Context(), "query", "SELECT $1", []QueryParameter{{Name: "1", Value: "value"}})
 	EndSpan(span, nil)
-	instrumentation.EmitQueryLog(t.Context(), "query", "SELECT 1", time.Millisecond, nil)
+	instrumentation.EmitQueryLogWithParameters(ctx, "query", "SELECT $1", []QueryParameter{{Name: "1", Value: "value"}}, time.Millisecond, nil)
 
 	ended := recorder.Ended()
 	require.Len(t, ended, 1)
@@ -105,9 +122,35 @@ func TestInstrumentationSnapshotsOptions(t *testing.T) {
 
 	query, ok := readSpanAttr(ended[0], "db.query.text")
 	require.True(t, ok)
-	assert.Equal(t, "SELECT 1", query)
+	assert.Equal(t, "SELECT $1", query)
+	parameter, ok := readSpanAttr(ended[0], "db.query.parameter.1")
+	require.True(t, ok)
+	assert.Equal(t, "value", parameter)
 	require.Len(t, firstHandler.records, 1)
 	assert.Empty(t, secondHandler.records)
+}
+
+func TestQueryLogNormalizesWhitespaceAndIncludesCallSource(t *testing.T) {
+	handler := &testHandler{level: slog.LevelDebug}
+	instrumentation := NewInstrumentation("sqlite", &Options{
+		Log:      slog.New(handler),
+		QueryLog: true,
+	})
+
+	ctx, span := instrumentation.StartSpan(t.Context(), "query", "\n\t SELECT  id\nFROM\titems  ")
+	EndSpan(span, nil)
+	instrumentation.EmitQueryLog(ctx, "query", "\n\t SELECT  id\nFROM\titems  ", time.Millisecond, nil)
+
+	require.Len(t, handler.records, 1)
+	query, ok := readRecordAttr(handler.records[0], "db.query.text")
+	require.True(t, ok)
+	assert.Equal(t, "SELECT id FROM items", query.String())
+	file, ok := readRecordAttr(handler.records[0], "code.file.path")
+	require.True(t, ok)
+	assert.Equal(t, "instrument_test.go", file.String())
+	line, ok := readRecordAttr(handler.records[0], "code.line.number")
+	require.True(t, ok)
+	assert.Positive(t, line.Int64())
 }
 
 func TestSlowWarningOmitsQueryTextWhenDebugIsDisabled(t *testing.T) {
@@ -128,4 +171,32 @@ func TestSlowWarningOmitsQueryTextWhenDebugIsDisabled(t *testing.T) {
 		return true
 	})
 	assert.False(t, hasQueryText)
+}
+
+func TestSlowWarningOmitsQueryParametersWhenDebugIsDisabled(t *testing.T) {
+	recorder := recordSpans(t)
+	handler := &testHandler{level: slog.LevelInfo}
+	instrumentation := NewInstrumentation("sqlite", &Options{
+		Log:               slog.New(handler),
+		QueryLog:          true,
+		IncludeParameters: true,
+		SlowThreshold:     time.Millisecond,
+	})
+	parameters := []QueryParameter{{Name: "account_id", Value: "secret-value"}}
+
+	ctx, span := instrumentation.StartQuerySpan(t.Context(), "query", "SELECT  id\nFROM accounts WHERE id = ?", parameters)
+	EndSpan(span, nil)
+	instrumentation.EmitQueryLogWithParameters(ctx, "query", "SELECT  id\nFROM accounts WHERE id = ?", parameters, time.Second, nil)
+
+	require.Len(t, handler.records, 1)
+	_, queryOK := readRecordAttr(handler.records[0], "db.query.text")
+	assert.False(t, queryOK)
+	_, parameterOK := readRecordAttr(handler.records[0], "db.query.parameter.account_id")
+	assert.False(t, parameterOK)
+
+	ended := recorder.Ended()
+	require.Len(t, ended, 1)
+	spanParameter, ok := readSpanAttr(ended[0], "db.query.parameter.account_id")
+	require.True(t, ok)
+	assert.Equal(t, "secret-value", spanParameter)
 }

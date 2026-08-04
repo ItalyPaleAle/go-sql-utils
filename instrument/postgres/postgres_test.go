@@ -116,6 +116,20 @@ func attrStrings(r slog.Record) []string {
 	return vals
 }
 
+func recordAttr(record slog.Record, key string) (slog.Value, bool) {
+	var value slog.Value
+	found := false
+	record.Attrs(func(attr slog.Attr) bool {
+		if attr.Key == key {
+			value = attr.Value
+			found = true
+		}
+		return true
+	})
+
+	return value, found
+}
+
 // fakePgxTracer is a chained tracer implementing every pgx tracing interface, recording which callbacks it received
 type fakePgxTracer struct {
 	calls []string
@@ -205,6 +219,42 @@ func TestPgxTracerEmitsQuerySpansWithoutArgs(t *testing.T) {
 		assert.NotContains(t, attr.Value.AsString(), "secret-value-123")
 		assert.NotContains(t, attr.Value.AsString(), "param-id-xyz")
 	}
+}
+
+func TestPgxTracerIncludesParametersWhenEnabled(t *testing.T) {
+	sr := setupSpanRecorder(t)
+	handler := newCaptureHandler()
+	tracer := NewTracer(&instrument.Options{
+		Log:               slog.New(handler),
+		QueryLog:          true,
+		IncludeParameters: true,
+	})
+
+	ctx := tracer.TraceQueryStart(t.Context(), nil, pgx.TraceQueryStartData{
+		SQL:  "UPDATE hosts SET host_last_health_check = $1 WHERE host_id = $2",
+		Args: []any{"secret-value-123", "param-id-xyz"},
+	})
+	tracer.TraceQueryEnd(ctx, nil, pgx.TraceQueryEndData{})
+
+	span := spansByName(t, sr)["postgresql.query"]
+	require.NotNil(t, span)
+	first, ok := spanAttr(span, "db.query.parameter.1")
+	require.True(t, ok)
+	assert.Equal(t, "secret-value-123", first)
+	second, ok := spanAttr(span, "db.query.parameter.2")
+	require.True(t, ok)
+	assert.Equal(t, "param-id-xyz", second)
+
+	require.Len(t, handler.records, 1)
+	firstLog, ok := recordAttr(handler.records[0], "db.query.parameter.1")
+	require.True(t, ok)
+	assert.Equal(t, "secret-value-123", firstLog.String())
+	file, ok := recordAttr(handler.records[0], "code.file.path")
+	require.True(t, ok)
+	assert.Equal(t, "postgres_test.go", file.String())
+	line, ok := recordAttr(handler.records[0], "code.line.number")
+	require.True(t, ok)
+	assert.Positive(t, line.Int64())
 }
 
 func TestPgxTracerRecordsQueryError(t *testing.T) {
@@ -465,4 +515,41 @@ func TestPgxBatchLogsEachStatementWithoutBlankAggregate(t *testing.T) {
 		})
 		assert.Equal(t, want, got)
 	}
+}
+
+func TestPgxBatchIncludesNamedParametersInEventsAndLogs(t *testing.T) {
+	sr := setupSpanRecorder(t)
+	handler := newCaptureHandler()
+	queryTracer := NewTracer(&instrument.Options{
+		Log:               slog.New(handler),
+		QueryLog:          true,
+		IncludeParameters: true,
+	})
+	tracer, ok := queryTracer.(pgx.BatchTracer)
+	require.True(t, ok)
+
+	ctx := tracer.TraceBatchStart(t.Context(), nil, pgx.TraceBatchStartData{})
+	tracer.TraceBatchQuery(ctx, nil, pgx.TraceBatchQueryData{
+		SQL: "SELECT @account_id",
+		Args: []any{pgx.NamedArgs{
+			"account_id": "secret-value",
+		}},
+	})
+	tracer.TraceBatchEnd(ctx, nil, pgx.TraceBatchEndData{})
+
+	span := spansByName(t, sr)["postgresql.batch"]
+	require.NotNil(t, span)
+	require.Len(t, span.Events(), 1)
+	eventParameter := ""
+	for _, attr := range span.Events()[0].Attributes {
+		if string(attr.Key) == "db.query.parameter.account_id" {
+			eventParameter = attr.Value.AsString()
+		}
+	}
+	assert.Equal(t, "secret-value", eventParameter)
+
+	require.Len(t, handler.records, 1)
+	logParameter, ok := recordAttr(handler.records[0], "db.query.parameter.account_id")
+	require.True(t, ok)
+	assert.Equal(t, "secret-value", logParameter.String())
 }
