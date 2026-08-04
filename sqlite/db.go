@@ -8,9 +8,8 @@ import (
 	"fmt"
 	"log/slog"
 	"path/filepath"
-	"sync"
 
-	_ "modernc.org/sqlite"
+	sqlitedriver "modernc.org/sqlite"
 )
 
 // ConnectOpts configures Connect and NewConnector
@@ -23,30 +22,12 @@ type ConnectOpts struct {
 }
 
 // Connector is a prepared modernc.org/sqlite connector
-// It contains the normalized DSN and the metadata needed to configure the resulting sql.DB
+// It wraps the connector for the normalized DSN, and adds the metadata needed to configure the resulting sql.DB
 // It can be passed to packages such as instrument/sqlite before opening the connection pool
 type Connector struct {
-	base       driver.Driver
-	connString string
-	inMemory   bool
+	base     driver.Connector
+	inMemory bool
 }
-
-// Get an instance of the default driver
-// See: https://gitlab.com/cznic/sqlite/-/work_items/253
-var defaultDriver = sync.OnceValues(func() (driver.Driver, error) {
-	db, err := sql.Open("sqlite", "")
-	if err != nil {
-		return nil, fmt.Errorf("failed to load the SQLite driver: %w", err)
-	}
-
-	base := db.Driver()
-	err = db.Close()
-	if err != nil {
-		return nil, fmt.Errorf("failed to release the SQLite driver handle: %w", err)
-	}
-
-	return base, nil
-})
 
 // NewConnector validates and normalizes SQLite configuration, performs the filesystem safety setup used by Connect, and returns a reusable connector
 func NewConnector(opts ConnectOpts) (*Connector, error) {
@@ -91,28 +72,22 @@ func NewConnector(opts ConnectOpts) (*Connector, error) {
 		}
 	}
 
-	// Get the driver and connector
-	base, err := defaultDriver()
+	// Get the connector from the driver registered by modernc.org/sqlite, which carries all functions, collations, and connection hooks registered at the package level
+	base, err := sqlitedriver.NewConnector(connString)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create the SQLite connector: %w", err)
 	}
 
 	return &Connector{
-		base:       base,
-		connString: connString,
-		inMemory:   isMemoryDB,
+		base:     base,
+		inMemory: isMemoryDB,
 	}, nil
 }
 
 // Connect implements driver.Connector
 func (c *Connector) Connect(ctx context.Context) (driver.Conn, error) {
-	// modernc.org/sqlite does not expose a context-aware connector, so cancellation is checked before and immediately after opening the local connection
-	err := ctx.Err()
-	if err != nil {
-		return nil, err
-	}
-
-	conn, err := c.base.Open(c.connString)
+	// The underlying connector honors ctx only up to the point the open begins, since sqlite3_open_v2 has no cancellation hook, so cancellation is checked again immediately after
+	conn, err := c.base.Connect(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -128,7 +103,7 @@ func (c *Connector) Connect(ctx context.Context) (driver.Conn, error) {
 
 // Driver implements driver.Connector
 func (c *Connector) Driver() driver.Driver {
-	return c.base
+	return c.base.Driver()
 }
 
 // OpenDB opens a plain sql.DB from the prepared connector and applies pool settings required for correct SQLite behavior
