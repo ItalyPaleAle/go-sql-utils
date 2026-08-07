@@ -27,6 +27,7 @@ type ConnectOpts struct {
 type Connector struct {
 	base     driver.Connector
 	inMemory bool
+	maxConns int
 }
 
 // NewConnector validates and normalizes SQLite configuration, performs the filesystem safety setup used by Connect, and returns a reusable connector
@@ -42,7 +43,7 @@ func NewConnector(opts ConnectOpts) (*Connector, error) {
 	}
 
 	// Parse the connection string
-	connString, dbPath, isMemoryDB, err := ParseConnectionString(opts.ConnString, log)
+	connString, dbPath, isMemoryDB, maxConns, err := ParseConnectionString(opts.ConnString, log)
 	if err != nil {
 		return nil, err
 	}
@@ -81,6 +82,7 @@ func NewConnector(opts ConnectOpts) (*Connector, error) {
 	return &Connector{
 		base:     base,
 		inMemory: isMemoryDB,
+		maxConns: maxConns,
 	}, nil
 }
 
@@ -116,10 +118,15 @@ func (c *Connector) OpenDB() *sql.DB {
 // ConfigureDB applies connector-specific pool constraints to db
 // It is used by wrappers that decorate the connector before opening the pool
 func (c *Connector) ConfigureDB(db *sql.DB) {
-	if c.inMemory {
+	switch {
+	case c.inMemory:
 		// For in-memory SQLite databases, we must limit to 1 open connection at the same time, or they won't see the whole data
 		// The other workaround, of using shared caches, doesn't work well with multiple write transactions trying to happen at once
+		// This takes precedence over the "_maxconn" connection string parameter
 		db.SetMaxOpenConns(1)
+	case c.maxConns > 0:
+		// Apply the custom max connections limit set via the "_maxconn" connection string parameter, if any
+		db.SetMaxOpenConns(c.maxConns)
 	}
 }
 

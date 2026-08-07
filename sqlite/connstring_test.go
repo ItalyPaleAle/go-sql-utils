@@ -500,7 +500,7 @@ func TestParseConnectionString(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			parsedConnString, dbPath, isMemoryDB, err := ParseConnectionString(tt.connString, nil)
+			parsedConnString, dbPath, isMemoryDB, _, err := ParseConnectionString(tt.connString, nil)
 
 			if tt.expectError {
 				require.Error(t, err)
@@ -516,6 +516,66 @@ func TestParseConnectionString(t *testing.T) {
 			if tt.checkDbPath != nil {
 				tt.checkDbPath(t, dbPath)
 			}
+		})
+	}
+}
+
+func TestParseConnectionStringMaxConns(t *testing.T) {
+	tests := []struct {
+		name        string
+		connString  string
+		expectError bool
+		maxConns    int
+	}{
+		{
+			name:       "no _maxconn param",
+			connString: "file:test.db",
+			maxConns:   0,
+		},
+		{
+			name:       "_maxconn set to a positive value",
+			connString: "file:test.db?_maxconn=10",
+			maxConns:   10,
+		},
+		{
+			name:       "_maxconn set to zero means use the default",
+			connString: "file:test.db?_maxconn=0",
+			maxConns:   0,
+		},
+		{
+			name:       "_maxconn set to a negative value means use the default",
+			connString: "file:test.db?_maxconn=-5",
+			maxConns:   0,
+		},
+		{
+			name:        "_maxconn set to a non-numeric value returns an error",
+			connString:  "file:test.db?_maxconn=abc",
+			expectError: true,
+		},
+		{
+			name:       "_maxconn is ignored for in-memory databases",
+			connString: "file::memory:?_maxconn=10",
+			maxConns:   10,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parsedConnString, _, _, maxConns, err := ParseConnectionString(tt.connString, nil)
+
+			if tt.expectError {
+				require.Error(t, err)
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.maxConns, maxConns)
+
+			// The "_maxconn" parameter must never be passed through to the driver
+			u, err := url.Parse(parsedConnString)
+			require.NoError(t, err)
+			_, ok := u.Query()["_maxconn"]
+			assert.False(t, ok, "_maxconn should have been removed from the parsed connection string")
 		})
 	}
 }
