@@ -189,6 +189,11 @@ The connection string can be a filesystem path such as `./data.db`, a `file:` UR
 - Tries to ensure SQLite has a writable temp directory, which is useful in containers with read-only root filesystems
 - Logs a warning when the database appears to be stored on a networked filesystem
 
+### Limiting the connection pool size
+
+The connection string supports a custom `_maxconn` query parameter (not a native SQLite option) that sets the maximum number of open connections in the pool, e.g. `data.db?_maxconn=10`. A value that's zero or negative means the driver's default is used.  
+This parameter is ignored for in-memory databases, which are always limited to 1 open connection.
+
 ---
 
 ## transactions

@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/url"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -17,9 +18,14 @@ import (
 // Default value for the SQLite busy timeout
 const defaultBusyTimeout = 2500 * time.Millisecond
 
+// Custom query parameter, not understood by the SQLite driver, used to set the maximum number of open connections in the pool
+// A zero or negative value means the default (no limit) is used
+const maxConnQueryParam = "_maxconn"
+
 // ParseConnectionString parses the SQLite connection string, ensuring the required parameters are set
 // This is optimized for the modernc.org/sqlite driver
-func ParseConnectionString(connString string, log *slog.Logger) (parsedConnString string, dbPath string, isMemoryDB bool, err error) {
+// The returned maxConns is the value of the custom "_maxconn" query parameter, or 0 if it's not set (or set to a value <= 0), meaning the default should be used
+func ParseConnectionString(connString string, log *slog.Logger) (parsedConnString string, dbPath string, isMemoryDB bool, maxConns int, err error) {
 	// Ensure there's the "file:" prefix
 	if !strings.HasPrefix(connString, "file:") {
 		connString = "file:" + connString
@@ -31,7 +37,13 @@ func ParseConnectionString(connString string, log *slog.Logger) (parsedConnStrin
 	// Parse the connection string
 	connStringUrl, err := url.Parse(connString)
 	if err != nil {
-		return "", "", false, fmt.Errorf("failed to parse SQLite connection string: %w", err)
+		return "", "", false, 0, fmt.Errorf("failed to parse SQLite connection string: %w", err)
+	}
+
+	// Extract (and remove) the custom "_maxconn" parameter, which isn't understood by the SQLite driver
+	maxConns, err = extractMaxConnsParam(connStringUrl)
+	if err != nil {
+		return "", "", false, 0, fmt.Errorf("invalid SQLite connection string: %w", err)
 	}
 
 	// Convert parameters the C library supports
@@ -40,7 +52,7 @@ func ParseConnectionString(connString string, log *slog.Logger) (parsedConnStrin
 	// Add the default and required params
 	err = addDefaultParameters(connStringUrl, isMemoryDB, log)
 	if err != nil {
-		return "", "", false, fmt.Errorf("invalid SQLite connection string: %w", err)
+		return "", "", false, 0, fmt.Errorf("invalid SQLite connection string: %w", err)
 	}
 
 	// Get the absolute path to the database
@@ -49,10 +61,34 @@ func ParseConnectionString(connString string, log *slog.Logger) (parsedConnStrin
 	idx := strings.IndexRune(parsedConnString, '?')
 	dbPath, err = filepath.Abs(parsedConnString[len("file:"):idx])
 	if err != nil {
-		return "", "", false, fmt.Errorf("failed to determine absolute path to the database: %w", err)
+		return "", "", false, 0, fmt.Errorf("failed to determine absolute path to the database: %w", err)
 	}
 
-	return parsedConnString, dbPath, isMemoryDB, nil
+	return parsedConnString, dbPath, isMemoryDB, maxConns, nil
+}
+
+// extractMaxConnsParam removes the custom "_maxconn" parameter from the connection string (if present) and returns its value
+// A missing parameter, or a value <= 0, returns 0, meaning the default (no limit) should be used
+// Note this function updates connStringUrl
+func extractMaxConnsParam(connStringUrl *url.URL) (int, error) {
+	qs := connStringUrl.Query()
+	vals, ok := qs[maxConnQueryParam]
+	if !ok {
+		return 0, nil
+	}
+
+	delete(qs, maxConnQueryParam)
+	connStringUrl.RawQuery = qs.Encode()
+
+	maxConns, err := strconv.Atoi(vals[0])
+	if err != nil {
+		return 0, fmt.Errorf("invalid value for '%s': %w", maxConnQueryParam, err)
+	}
+	if maxConns < 0 {
+		maxConns = 0
+	}
+
+	return maxConns, nil
 }
 
 // isInMemory returns true if the connection string is for an in-memory database.
