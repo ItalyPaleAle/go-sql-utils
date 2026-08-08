@@ -32,7 +32,9 @@ func ExecuteInTransaction[T any](ctx context.Context, log *slog.Logger, db *pgxp
 		if success {
 			return
 		}
-		rollbackCtx, rollbackCancel := context.WithTimeout(ctx, timeout)
+
+		// Use a context without cancel because the parent context may have been canceled already
+		rollbackCtx, rollbackCancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
 		defer rollbackCancel()
 		rollbackErr := tx.Rollback(rollbackCtx)
 		if rollbackErr != nil {
@@ -45,6 +47,11 @@ func ExecuteInTransaction[T any](ctx context.Context, log *slog.Logger, db *pgxp
 	res, err = fn(ctx, tx)
 	if err != nil {
 		return res, err
+	}
+
+	// Check the context before attempting to commit the transaction
+	if ctx.Err() != nil {
+		return res, ctx.Err()
 	}
 
 	// Commit the transaction
