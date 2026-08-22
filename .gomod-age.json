@@ -5,8 +5,8 @@
   ],
   "allow": [
     {
-      "module": "modernc.org/sqlite",
-      "version": "v1.56.0",
+      "module": "github.com/stretchr/testify",
+      "version": "v1.12.1",
       "reason": ""
     }
   ]
