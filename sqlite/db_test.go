@@ -27,6 +27,7 @@ func TestConnectorHonorsCanceledContext(t *testing.T) {
 func TestConnectorConfiguresInMemoryPool(t *testing.T) {
 	connector, err := NewConnector(ConnectOpts{ConnString: ":memory:"})
 	require.NoError(t, err)
+	assert.True(t, connector.InMemory())
 
 	db := connector.OpenDB()
 	t.Cleanup(func() {

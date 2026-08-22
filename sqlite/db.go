@@ -25,9 +25,10 @@ type ConnectOpts struct {
 // It wraps the connector for the normalized DSN, and adds the metadata needed to configure the resulting sql.DB
 // It can be passed to packages such as instrument/sqlite before opening the connection pool
 type Connector struct {
-	base     driver.Connector
-	inMemory bool
-	maxConns int
+	base        driver.Connector
+	inMemory    bool
+	isNetworked bool
+	maxConns    int
 }
 
 // NewConnector validates and normalizes SQLite configuration, performs the filesystem safety setup used by Connect, and returns a reusable connector
@@ -55,6 +56,7 @@ func NewConnector(opts ConnectOpts) (*Connector, error) {
 		return nil, err
 	}
 
+	var isNetworked bool
 	if !isMemoryDB {
 		// Ensure that the folder where the database is stored exists
 		err = EnsureDatabaseDir(dbPath)
@@ -63,12 +65,12 @@ func NewConnector(opts ConnectOpts) (*Connector, error) {
 		}
 
 		// SQLite locking is not reliable on filesystems such as NFS, SMB, and FUSE
-		networked, err := IsNetworkedFileSystem(filepath.Dir(dbPath))
+		isNetworked, err = IsNetworkedFileSystem(filepath.Dir(dbPath))
 		switch {
 		case err != nil:
 			// Print out a warning log only
 			log.Warn("Failed to detect filesystem type for the SQLite database directory", slog.String("path", filepath.Dir(dbPath)), slog.Any("error", err))
-		case networked:
+		case isNetworked:
 			log.Warn("⚠️⚠️⚠️ SQLite databases should not be stored on a networked file system like NFS, SMB, or FUSE, as there's a risk of crashes and even database corruption", slog.String("path", filepath.Dir(dbPath)))
 		}
 	}
@@ -80,9 +82,10 @@ func NewConnector(opts ConnectOpts) (*Connector, error) {
 	}
 
 	return &Connector{
-		base:     base,
-		inMemory: isMemoryDB,
-		maxConns: maxConns,
+		base:        base,
+		inMemory:    isMemoryDB,
+		maxConns:    maxConns,
+		isNetworked: isNetworked,
 	}, nil
 }
 
@@ -128,6 +131,16 @@ func (c *Connector) ConfigureDB(db *sql.DB) {
 		// Apply the custom max connections limit set via the "_maxconn" connection string parameter, if any
 		db.SetMaxOpenConns(c.maxConns)
 	}
+}
+
+// InMemory returns true if the SQLite database is an ephemeral, in-memory database.
+func (c *Connector) InMemory() bool {
+	return c.inMemory
+}
+
+// IsNetworked returns true if the SQLite database is stored on a networked filesystem, like NFS/SMB/FUSE.
+func (c *Connector) IsNetworked() bool {
+	return c.isNetworked
 }
 
 // Connect opens a SQLite database
