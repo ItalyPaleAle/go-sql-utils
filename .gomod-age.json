@@ -5,8 +5,8 @@
   ],
   "allow": [
     {
-      "module": "github.com/stretchr/testify",
-      "version": "v1.12.1",
+      "module": "github.com/jackc/pgx/v5",
+      "version": "v5.11.0",
       "reason": ""
     }
   ]
