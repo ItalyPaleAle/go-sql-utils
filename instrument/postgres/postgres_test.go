@@ -277,7 +277,8 @@ func TestPgxTracerForwardsToChainedTracers(t *testing.T) {
 	fake := &fakePgxTracer{}
 	tracer := NewTracer(nil, nil, fake)
 
-	// Exercise every interface; the chained tracer must see each callback even though nil entries were chained
+	// Exercise every interface
+	// The chained tracer must see each callback even though nil entries were chained
 	ctx := tracer.TraceQueryStart(t.Context(), nil, pgx.TraceQueryStartData{SQL: "SELECT 1"})
 	tracer.TraceQueryEnd(ctx, nil, pgx.TraceQueryEndData{})
 
