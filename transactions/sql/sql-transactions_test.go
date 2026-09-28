@@ -8,6 +8,7 @@ import (
 	"errors"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -151,4 +152,96 @@ func TestExecuteInTransaction_QueryWithinTransaction(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, "query_test", result)
+}
+
+// getTestSQLiteFileDB opens a file database in WAL mode with _txlock=immediate, so a regular transaction takes the write lock at BEGIN while a read-only one does not
+func getTestSQLiteFileDB(t *testing.T) *sql.DB {
+	t.Helper()
+
+	// A short busy timeout makes a blocked writer fail quickly instead of waiting
+	connString := "file:" + filepath.Join(t.TempDir(), "test.db") + "?_txlock=immediate&_pragma=journal_mode(WAL)&_pragma=busy_timeout(200)"
+	db, err := sql.Open("sqlite", connString)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	_, err = db.ExecContext(t.Context(), "CREATE TABLE test_ro (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT)")
+	require.NoError(t, err)
+	_, err = db.ExecContext(t.Context(), "INSERT INTO test_ro (name) VALUES ('first')")
+	require.NoError(t, err)
+
+	return db
+}
+
+// rowQuerier is implemented by both *sql.DB and *sql.Tx
+type rowQuerier interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+func countRows(ctx context.Context, q rowQuerier) (int, error) {
+	var count int
+	err := q.QueryRowContext(ctx, "SELECT COUNT(*) FROM test_ro").Scan(&count)
+	return count, err
+}
+
+func TestExecuteInReadOnlyTransaction(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	t.Run("does not block writers and sees a consistent snapshot", func(t *testing.T) {
+		db := getTestSQLiteFileDB(t)
+
+		counts, err := ExecuteInReadOnlyTransaction(t.Context(), logger, db, func(ctx context.Context, tx *sql.Tx) ([2]int, error) {
+			var res [2]int
+
+			// The first read starts the snapshot
+			var err error
+			res[0], err = countRows(ctx, tx)
+			if err != nil {
+				return res, err
+			}
+
+			// Another connection can write while the transaction is open, because it holds no write lock
+			_, err = db.ExecContext(ctx, "INSERT INTO test_ro (name) VALUES ('second')")
+			if err != nil {
+				return res, err
+			}
+
+			// The transaction still sees the snapshot from before the write
+			res[1], err = countRows(ctx, tx)
+			return res, err
+		})
+		require.NoError(t, err)
+		assert.Equal(t, [2]int{1, 1}, counts)
+
+		// The write is visible once the transaction is over
+		count, err := countRows(t.Context(), db)
+		require.NoError(t, err)
+		assert.Equal(t, 2, count)
+	})
+
+	t.Run("a regular transaction blocks writers", func(t *testing.T) {
+		// Confirms the test above is meaningful: with _txlock=immediate, a regular transaction holds the write lock from BEGIN
+		db := getTestSQLiteFileDB(t)
+
+		_, err := ExecuteInTransaction(t.Context(), logger, db, func(ctx context.Context, tx *sql.Tx) (struct{}, error) {
+			_, err := countRows(ctx, tx)
+			if err != nil {
+				return struct{}{}, err
+			}
+
+			_, err = db.ExecContext(ctx, "INSERT INTO test_ro (name) VALUES ('second')")
+			return struct{}{}, err
+		})
+		require.Error(t, err)
+		assert.ErrorContains(t, err, "SQLITE_BUSY")
+	})
+
+	t.Run("returns the error of the function", func(t *testing.T) {
+		db := getTestSQLiteFileDB(t)
+
+		expectedErr := errors.New("intentional error")
+		_, err := ExecuteInReadOnlyTransaction(t.Context(), logger, db, func(ctx context.Context, tx *sql.Tx) (int, error) {
+			return 0, expectedErr
+		})
+		require.ErrorIs(t, err, expectedErr)
+	})
 }

@@ -14,9 +14,20 @@ import (
 // ExecuteInTransaction executes a function in a transaction for database/sql.
 // If the handler returns an error, the transaction is rolled back automatically.
 func ExecuteInTransaction[T any](ctx context.Context, log *slog.Logger, db *sql.DB, fn func(ctx context.Context, tx *sql.Tx) (T, error)) (res T, err error) {
+	return executeInTransactionWithOptions(ctx, log, db, nil, fn)
+}
+
+// ExecuteInReadOnlyTransaction executes a function in a read-only transaction for database/sql.
+// If the handler returns an error, the transaction is rolled back automatically.
+func ExecuteInReadOnlyTransaction[T any](ctx context.Context, log *slog.Logger, db *sql.DB, fn func(ctx context.Context, tx *sql.Tx) (T, error)) (res T, err error) {
+	return executeInTransactionWithOptions(ctx, log, db, &sql.TxOptions{ReadOnly: true}, fn)
+}
+
+// executeInTransactionWithOptions executes a function in a transaction started with the given options, which may be nil for the driver's defaults
+func executeInTransactionWithOptions[T any](ctx context.Context, log *slog.Logger, db *sql.DB, opts *sql.TxOptions, fn func(ctx context.Context, tx *sql.Tx) (T, error)) (res T, err error) {
 	// Start the transaction
 	// Note that the context here is tied to the entire transaction
-	tx, err := db.BeginTx(ctx, nil)
+	tx, err := db.BeginTx(ctx, opts)
 	if err != nil {
 		return res, fmt.Errorf("failed to begin transaction: %w", err)
 	}
