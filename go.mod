@@ -1,6 +1,6 @@
 module github.com/italypaleale/go-sql-utils
 
-go 1.27.2
+go 1.27.3
 
 tool github.com/fchimpan/gomod-age
 
