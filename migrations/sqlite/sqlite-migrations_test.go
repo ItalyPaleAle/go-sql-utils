@@ -382,6 +382,86 @@ func TestMigrations_Perform_PartialMigrationFailure(t *testing.T) {
 	require.ErrorContains(t, err, "second migration failed")
 }
 
+func TestMigrations_Perform_CanceledContext(t *testing.T) {
+	// Use a file-based database so the checks below see what the migrations left behind regardless of which connection they get
+	dbPath := t.TempDir() + "/test_canceled.db"
+	db, err := sql.Open("sqlite", "file:"+dbPath+"?_pragma=busy_timeout%281000%29")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	m := &Migrations{
+		Pool:              db,
+		MetadataTableName: "test_metadata_canceled",
+		MetadataKey:       "migration_level",
+	}
+
+	// The migration cancels the context once its work is done, so updating the migration level fails and the transaction has to be rolled back with a canceled context
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	err = m.Perform(ctx, []migrations.MigrationFn{
+		func(ctx context.Context) error {
+			_, err := m.GetConn().ExecContext(ctx, "CREATE TABLE users (id INTEGER PRIMARY KEY)")
+			cancel()
+			return err
+		},
+	}, logger)
+	require.ErrorIs(t, err, context.Canceled)
+
+	// The rollback undid the migration
+	var tables int
+	err = db.
+		QueryRowContext(t.Context(), "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'users'").
+		Scan(&tables)
+	require.NoError(t, err)
+	assert.Equal(t, 0, tables)
+
+	// The rollback also ended the exclusive transaction, so the migrations can run again
+	var ran bool
+	err = m.Perform(t.Context(), []migrations.MigrationFn{
+		func(ctx context.Context) error {
+			ran = true
+			return nil
+		},
+	}, logger)
+	require.NoError(t, err)
+	assert.True(t, ran)
+}
+
+func TestMigrations_Perform_RollbackFailure(t *testing.T) {
+	dbPath := t.TempDir() + "/test_rollback_failure.db"
+	db, err := sql.Open("sqlite", "file:"+dbPath+"?_pragma=busy_timeout%281000%29")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	m := &Migrations{
+		Pool:              db,
+		MetadataTableName: "test_metadata_rollback_failure",
+		MetadataKey:       "migration_level",
+	}
+
+	// The migration ends the transaction before failing, which makes the deferred rollback fail too
+	// SQLite does the same on its own when it rolls back a transaction whose statement was interrupted
+	expectedErr := errors.New("migration failed")
+	err = m.Perform(t.Context(), []migrations.MigrationFn{
+		func(ctx context.Context) error {
+			_, err := m.GetConn().ExecContext(ctx, "ROLLBACK TRANSACTION")
+			if err != nil {
+				return err
+			}
+			return expectedErr
+		},
+	}, logger)
+	require.ErrorIs(t, err, expectedErr)
+	require.ErrorContains(t, err, "failed to rollback transaction")
+
+	// The connection that failed to roll back was closed rather than returned to the pool
+	assert.Equal(t, 0, db.Stats().OpenConnections)
+}
+
 func TestMigrations_Perform_ConcurrentSafety(t *testing.T) {
 	// Use a file-based database to test concurrency across connections
 	// Memory databases are isolated per connection

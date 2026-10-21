@@ -222,6 +222,47 @@ func TestMigrations_Perform_MigrationError(t *testing.T) {
 	require.ErrorIs(t, err, expectedErr)
 }
 
+func TestMigrations_Perform_CanceledContext(t *testing.T) {
+	pool := getTestDB(t)
+	t.Cleanup(func() { pool.Close() })
+
+	const tableName = "test_metadata_canceled"
+	cleanupTestTable(t, pool, tableName)
+	t.Cleanup(func() { cleanupTestTable(t, pool, tableName) })
+
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	m := Migrations{
+		DB:                pool,
+		MetadataTableName: tableName,
+		MetadataKey:       "migration_level",
+	}
+
+	// The migration cancels the context, so updating the migration level fails and the lock has to be released with a canceled context
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	err := m.Perform(ctx, []migrations.MigrationFn{
+		func(ctx context.Context) error {
+			cancel()
+			return nil
+		},
+	}, logger)
+	require.ErrorIs(t, err, context.Canceled)
+
+	// The lock was released, so the migrations can run again without waiting for it
+	runCtx, runCancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer runCancel()
+	var ran bool
+	err = m.Perform(runCtx, []migrations.MigrationFn{
+		func(ctx context.Context) error {
+			ran = true
+			return nil
+		},
+	}, logger)
+	require.NoError(t, err)
+	assert.True(t, ran)
+}
+
 func TestMigrations_Perform_NoMigrations(t *testing.T) {
 	pool := getTestDB(t)
 	t.Cleanup(func() { pool.Close() })

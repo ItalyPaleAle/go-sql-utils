@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
 	"time"
 
 	"github.com/jackc/pgerrcode"
@@ -27,10 +26,10 @@ type Migrations struct {
 }
 
 // Perform the required migrations
-func (m Migrations) Perform(ctx context.Context, migrationFns []migrations.MigrationFn, logger *slog.Logger) error {
+func (m Migrations) Perform(ctx context.Context, migrationFns []migrations.MigrationFn, logger *slog.Logger) (err error) {
 	// Ensure the metadata table exists
 	// This query uses an "IF NOT EXISTS" so it's safe to be created concurrently
-	err := m.EnsureMetadataTable(ctx, logger)
+	err = m.EnsureMetadataTable(ctx, logger)
 	if err != nil {
 		return fmt.Errorf("failed to ensure metadata table exists: %w", err)
 	}
@@ -57,15 +56,15 @@ func (m Migrations) Perform(ctx context.Context, migrationFns []migrations.Migra
 	}
 
 	// Always rollback the transaction at the end to release the lock, since the value doesn't really matter
+	// The rollback doesn't inherit ctx's cancellation, since migrations can fail precisely because ctx is done
 	defer func() {
 		logger.DebugContext(ctx, "Releasing migration lock")
-		rollbackCtx, rollbackCancel := context.WithTimeout(ctx, 15*time.Second)
+		rollbackCtx, rollbackCancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
 		rollbackErr := tx.Rollback(rollbackCtx)
 		rollbackCancel()
 		if rollbackErr != nil {
-			// Panicking here, as this forcibly closes the session and thus ensures we are not leaving locks hanging around
-			logger.ErrorContext(ctx, "Failed to rollback transaction", slog.Any("error", rollbackErr))
-			os.Exit(1)
+			// pgx closes a connection whose rollback failed, which ends the session and releases the lock with it
+			err = errors.Join(err, fmt.Errorf("failed to release migration lock: %w", rollbackErr))
 		}
 	}()
 

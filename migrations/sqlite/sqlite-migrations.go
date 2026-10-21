@@ -7,9 +7,10 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
+	"errors"
 	"fmt"
 	"log/slog"
-	"os"
 	"time"
 
 	sqladapter "github.com/italypaleale/go-sql-utils/adapter/sql"
@@ -44,18 +45,22 @@ func (m *Migrations) Perform(ctx context.Context, migrationFns []migrations.Migr
 	}
 
 	// Rollback the transaction in a deferred statement to catch errors
+	// The rollback doesn't inherit ctx's cancellation, since migrations can fail precisely because ctx is done
 	success := false
 	defer func() {
 		if success {
 			return
 		}
-		rollbackCtx, rollbackCancel := context.WithTimeout(ctx, time.Minute)
+		rollbackCtx, rollbackCancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
 		_, rollbackErr := m.conn.ExecContext(rollbackCtx, "ROLLBACK TRANSACTION")
 		rollbackCancel()
 		if rollbackErr != nil {
-			// Panicking here, as this forcibly closes the session and thus ensures we are not leaving transactions open
-			logger.ErrorContext(ctx, "Failed to rollback transaction", slog.Any("error", rollbackErr))
-			os.Exit(1)
+			// The connection may still hold the exclusive transaction, so discard it rather than returning it to the pool
+			// Returning driver.ErrBadConn from Raw makes database/sql close the connection, and closing a SQLite connection rolls back its open transaction
+			_ = m.conn.Raw(func(any) error {
+				return driver.ErrBadConn
+			})
+			err = errors.Join(err, fmt.Errorf("failed to rollback transaction: %w", rollbackErr))
 		}
 	}()
 
